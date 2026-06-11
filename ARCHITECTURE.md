@@ -1,4 +1,60 @@
-# Architecture Report: Research Swarm Retrieval Layer — Production-Grade Overhaul
+# Architecture Report: Research Swarm — Production-Grade Overhaul
+
+## 0. Vector Memory Layer: Qdrant + Ollama
+
+### Overview
+
+The system uses a local vector database (Qdrant) and local embedding inference (Ollama) to enable **semantic deduplication, cross-iteration memory, and smart context retrieval**. This eliminates redundant LLM calls and prevents research stagnation.
+
+### Infrastructure
+
+```yaml
+# docker-compose.yml
+qdrant:     image: qdrant/qdrant:latest      # port 6333
+ollama:     image: ollama/ollama:latest      # port 11434
+ollama-provisioner:                          # auto-downloads nomic-embed-text
+```
+
+### SwarmMemoryBank (`src/research_swarm/memory/vector_storage.py`)
+
+| Method | Purpose |
+|--------|---------|
+| `upsert_facts(facts, iteration, task)` | Embed facts via Ollama → check for semantic duplicates (cosine ≥ 0.92) → store unique ones in Qdrant. Returns count of *newly* stored facts. |
+| `retrieve_context(query, limit=25)` | Embed query → semantic search via `query_points()` → return top-N fact payloads. Used by Summarizer to build reports from clean, de-duplicated context. |
+| `_is_semantic_duplicate(vector, threshold=0.92)` | Cosine similarity check against existing Qdrant collection. Used by Fact Checker to pre-filter evidence before LLM validation. |
+
+**Embedding model**: `nomic-embed-text` (768-dim vectors, Cosine distance)
+
+### 3-Layer Fact Checking Pipeline
+
+```
+Raw evidence batch
+    ↓
+Layer 1: Semantic pre-filter (Qdrant cosine ≥ 0.92 check)
+    → duplicates skipped, no LLM cost incurred
+    ↓
+Layer 2: LLM validation (only unique items reach the LLM)
+    → validated_facts + rejected_facts
+    ↓
+Layer 3: Commit to Qdrant (embed + upsert unique facts)
+    → new_evidence_count = how many were actually new
+    → new_evidence_found = new_evidence_count > 0
+```
+
+If Layer 1 filters ALL items as duplicates, the Fact Checker skips the LLM entirely and sets `new_evidence_found = False`. This feeds into the routing layer's semantic stagnation detection.
+
+### Semantic Stagnation Stop Condition
+
+When the Fact Checker reports `new_evidence_found = False` (meaning Qdrant found every incoming item duplicated), the router triggers a `no_new_evidence` stop condition. This prevents the system from burning tokens re-validating facts it already knows — a smarter termination than simple iteration counting.
+
+### Summarizer Integration
+
+The Summarizer no longer reads raw `state.validated_results` or `state.search_results`. Instead, it calls `memory.retrieve_context(query=state.query, limit=25)` to pull the top-25 semantically relevant facts from Qdrant. This means reports are built from:
+- De-duplicated context (no repeated claims)
+- Cross-iteration knowledge (facts from ALL iterations, not just the latest)
+- Quality-filtered content (only facts that passed the 3-layer pipeline)
+
+---
 
 ## 1. Root-Cause Analysis: Why the Workflow Collapses
 
@@ -199,6 +255,9 @@ The old code conflated these into a single `no_new_evidence` condition, causing 
 | **Observability** | None | Per-provider health metrics + failure diagnostics |
 | **Testing** | Mock hardcoded functions | Mock orchestrator or individual providers |
 | **Evidence quality** | None | Structured metadata per item |
+| **Vector memory** | None | Qdrant + Ollama — semantic dedup, cross-iteration memory, smart retrieval |
+| **LLM token waste** | All evidence sent to LLM every time | Semantic pre-filter skips duplicates before LLM |
+| **Report context** | Raw search results | Top-N semantically relevant de-duplicated facts from Qdrant |
 
 ---
 
@@ -212,9 +271,12 @@ The old code conflated these into a single `no_new_evidence` condition, causing 
 - ✅ **Searcher dual-mode** — FULL/TARGETED research
 - ✅ **Differentiated stop conditions** — `retrieval_failed` vs `no_new_evidence`
 - ✅ **Evidence quality tracking** — structured metadata with timestamps
-- ✅ **Comprehensive test suite** — 217 tests, 0 failures
+- ✅ **Vector memory** — Qdrant + Ollama semantic dedup, cross-iteration memory, smart retrieval
+- ✅ **Token efficiency** — semantic pre-filter skips duplicate evidence before LLM validation
+- ✅ **Comprehensive test suite** — 242 tests, 0 failures
 - ✅ **Async-first, fully typed, no TODOs or placeholders**
 - ✅ **Graceful degradation** — providers without API keys are silently skipped
+- ✅ **Infrastructure as code** — `docker-compose.yml` for one-command local setup
 
 ### Recommendations for Further Hardening
 
@@ -223,6 +285,9 @@ The old code conflated these into a single `no_new_evidence` condition, causing 
 3. **Provider SLA tiers**: Track which providers produce the highest-quality evidence (by downstream Judge scores) and weight priority dynamically.
 4. **Rate limit awareness**: Track `Retry-After` headers from providers that return 429 and respect backoff windows.
 5. **Distributed health**: If running multiple instances, push health metrics to a shared store (Redis, statsd) for cluster-wide provider health visibility.
+6. **Ollama GPU acceleration**: If running on a machine with a GPU, pass `--gpus all` to the Ollama container for faster embedding inference.
+7. **Qdrant persistence**: The `qdrant_storage` volume ensures facts survive container restarts. Consider backups for long-running research projects.
+8. **Multi-model embeddings**: Add support for alternative Ollama embedding models (e.g., `mxbai-embed-large` for 1024-dim vectors) via configuration.
 
 ---
 
@@ -244,4 +309,6 @@ The old code conflated these into a single `no_new_evidence` condition, causing 
 | `mcp_client.py` | **DEPRECATED** — thin wrapper around `DuckDuckGoProvider` |
 | `tests/test_agents.py` | **UPDATED** — searcher tests use orchestrator mocks |
 | `tests/test_routing.py` | **UPDATED** — `retrieval_failed` condition + `search_mode` transition tests |
+| `memory/vector_storage.py` | **NEW** — `SwarmMemoryBank` with Qdrant + Ollama for semantic dedup & retrieval |
+| `docker-compose.yml` | **NEW** — Qdrant, Ollama, ollama-provisioner service definitions |
 | `tests/test_search.py` | **NEW** — 10 integration tests for orchestrator, fallback, health monitor |

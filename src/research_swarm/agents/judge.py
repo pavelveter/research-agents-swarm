@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import re
@@ -14,26 +15,9 @@ from research_swarm.utils import safe_json
 
 logger = logging.getLogger(__name__)
 
-JUDGE_SYSTEM = (
-    "You are a cynical, hardcore AI Infrastructure Judge. Evaluate the report strictly "
-    "for technical, architectural, and production-grade validity. Reject high-level business "
-    "fluff, market growth percentages ($B), and marketing metrics.\n\n"
-    "Component scoring guidelines:\n"
-    "- Coverage (0-30): Explicit coverage of specific models (Claude 3.5 Sonnet, GPT-4o), frameworks, and legal bounds.\n"
-    "- Evidence Quality (0-20): Real benchmarks (SWE-bench, HumanEval) vs marketing claims.\n"
-    "- Source Diversity (0-20): Academic papers, CVE databases, post-mortems, and engineering blogs.\n"
-    "- Technical Depth (0-15): Low-level mechanics (context window retrieval, RAG strategies, multi-agent state management).\n"
-    "- Completeness (0-15): Zero tolerance for missing failure modes, risks, and license vectors.\n\n"
-    "If the report contains commercial boilerplate text without architectural diagrams/patterns descriptions, "
-    "tank the Technical Depth score below 5. Demand specific missing details in 'missing_topics'.\n\n"
-    "Return ONLY valid JSON with this exact shape:\n"
-    '{ "coverage_score": 0, "evidence_score": 0, "source_score": 0, "depth_score": 0, '
-    '"completeness_score": 0, "score": 0, "needs_research": true, "missing_topics": [], '
-    '"strengths": [], "weaknesses": [], "reasoning": "..." }'
-)
-
 
 def _extract_score_from_prose(text: str) -> int | None:
+    """Fallback parser to extract numeric score if LLM ignores JSON instructions."""
     match = re.search(r"score[:\s*]*(\d{1,3})", text, flags=re.IGNORECASE)
     if not match:
         return None
@@ -41,6 +25,7 @@ def _extract_score_from_prose(text: str) -> int | None:
 
 
 def _parse_judge_response(raw: str, state: ResearchState) -> dict[str, Any]:
+    """Safely decode judge response into structured dataset."""
     try:
         return safe_json(raw)
     except json.JSONDecodeError:
@@ -64,10 +49,9 @@ def _parse_judge_response(raw: str, state: ResearchState) -> dict[str, Any]:
 
 
 async def judge(state: ResearchState) -> ResearchState:
-    """Evaluate the report with weighted component scoring.
+    """Evaluate the report with dynamic temporal awareness and weighted component scoring.
 
-    Produces 5 component scores (0-30/0-20/0-20/0-15/0-15), a total score,
-    missing topics for targeted research, and stores all on state.
+    Strips hardcoded model indices to maintain production validity across years.
     """
     with trace_agent(
         "judge",
@@ -76,6 +60,38 @@ async def judge(state: ResearchState) -> ResearchState:
             "iteration": state.iteration,
         },
     ) as tracer:
+        # Извлекаем точное системное время для построения скользящего окна актуальности
+        now = datetime.date.today()
+        current_context_time = now.strftime("%B %Y")
+        current_year = now.year
+        cutoff_year = current_year - 2
+
+        # Полностью динамический промпт без хардкода конкретных моделей
+        judge_system_prompt = (
+            f"You are a cynical, hardcore AI Infrastructure Judge evaluating engineering data in {current_context_time}.\n"
+            "Strictly evaluate the report for technical, architectural, and production-grade validity.\n"
+            f"Reject historical marketing fluff and baseline tech older than {cutoff_year} as 'current trends'.\n\n"
+            "TEMPORAL ANCHORING & VERSIONING:\n"
+            f"1. Evaluate all findings relative to the current baseline of {current_context_time}.\n"
+            f"2. You expect the report to cover the absolute frontier models, developer tools, and agentic runtimes active in {current_year}.\n"
+            "3. Do NOT invent or extrapolate future version numbers (e.g., if a model family is currently at v3, do not demand v5.5 unless it actually exists in the wild).\n"
+            "4. Base your missing topics on active engineering ecosystems (e.g., state-of-the-art proprietary and open-source models, agent runtimes, and active IDE extensions).\n\n"
+            "Component scoring guidelines:\n"
+            "- Coverage (0-30): Explicit coverage of current state-of-the-art agentic runtimes, IDE integrations, and active legal/copyright boundaries.\n"
+            "- Evidence Quality (0-20): Real, recent industry-standard benchmarks (e.g., SWE-bench variants, LiveCodeBench, or current leading evals) vs commercial claims.\n"
+            f"- Source Diversity (0-20): Academic papers, technical post-mortems, engineering blogs, and CVE databases targeting vulnerabilities discovered up to {current_year}.\n"
+            "- Technical Depth (0-15): Low-level mechanics (context window retrieval engineering, chunk overlap strategies, production re-ranking pipelines, multi-agent state persistence).\n"
+            "- Completeness (0-15): Deep analysis of operational risks, data poisoning, RCE exploits via tool usage, and enterprise license compliance tools.\n\n"
+            "CRITICAL DIRECTIONS FOR MISSING TOPICS:\n"
+            "Formulate items in 'missing_topics' as explicit, highly targeted tasks containing specific engineering keywords, "
+            f"focusing on gaps relevant to the {current_year} infrastructure landscape.\n"
+            "Example format: 'SWE-bench scores for latest frontier models vs leading open-source models'.\n\n"
+            "Return ONLY valid JSON with this exact shape:\n"
+            '{ "coverage_score": 0, "evidence_score": 0, "source_score": 0, "depth_score": 0, '
+            '"completeness_score": 0, "score": 0, "needs_research": true, "missing_topics": [], '
+            '"strengths": [], "weaknesses": [], "reasoning": "..." }'
+        )
+
         report_text = state.final_report.summary if state.final_report else ""
         sources = (
             "\n".join(f"- {s}" for s in state.final_report.sources[:20])
@@ -100,7 +116,7 @@ async def judge(state: ResearchState) -> ResearchState:
         )
 
         messages = [
-            SystemMessage(content=JUDGE_SYSTEM),
+            SystemMessage(content=judge_system_prompt),
             HumanMessage(
                 content=(
                     f"Iteration: {state.iteration}\n"
@@ -116,23 +132,21 @@ async def judge(state: ResearchState) -> ResearchState:
             ),
         ]
         logger.info(
-            "Judging report | iteration=%s evidence_items=%s",
+            "Judging report | iteration=%s evidence_items=%s context_time=%s",
             state.iteration,
             evidence_count,
+            current_context_time,
         )
+
         raw = await invoke_messages(messages)
         parsed = _parse_judge_response(raw, state)
 
-        # Extract component scores
         coverage = max(0, min(30, int(parsed.get("coverage_score", 0))))
         evidence_s = max(0, min(20, int(parsed.get("evidence_score", 0))))
         source_s = max(0, min(20, int(parsed.get("source_score", 0))))
         depth = max(0, min(15, int(parsed.get("depth_score", 0))))
         completeness = max(0, min(15, int(parsed.get("completeness_score", 0))))
 
-        # Total score: use component sum as authoritative.
-        # Only fall back to the LLM-provided "score" field if no
-        # component scores were provided (sum is 0 — LLM didn't comply).
         computed_total = coverage + evidence_s + source_s + depth + completeness
         if computed_total > 0:
             state.judge_score = max(0, min(100, computed_total))
@@ -165,7 +179,7 @@ async def judge(state: ResearchState) -> ResearchState:
             len(state.missing_topics),
         )
         if state.missing_topics:
-            logger.info("Missing topics: %s", state.missing_topics)
+            logger.info("Missing topics generated by judge: %s", state.missing_topics)
 
         if hasattr(tracer, "update_observation"):
             tracer.update_observation(

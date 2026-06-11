@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import logging
 
@@ -9,8 +10,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from research_swarm.graph.state import ResearchState, SearchResult
 from research_swarm.llm.client import invoke_messages
-
-# Импортируем правильный оркестратор вместо мертвого mcp_client
 from research_swarm.search.orchestrator import get_orchestrator
 from research_swarm.utils import safe_json
 
@@ -32,113 +31,91 @@ FORMAT_SYSTEM = (
 
 async def search(state: ResearchState) -> ResearchState:
     """Execute search query via orchestrator fallback chain and guarantee evidence extraction."""
-    # Обрабатываем топ-1 недостающую тему для этого шага агента
-    current_question = (
-        state.missing_topics[0]
-        if state.missing_topics
-        else (
-            state.plan.research_questions[0]
-            if state.plan and state.plan.research_questions
-            else state.query
-        )
-    )
+    # ФИКС: Вместо застревания на missing_topics[0], берём срез топ-3 тем
+    topics_to_research = []
+    if state.missing_topics:
+        topics_to_research = state.missing_topics[:3]
+    elif state.plan and state.plan.research_questions:
+        topics_to_research = state.plan.research_questions[:1]
+    else:
+        topics_to_research = [state.query]
 
-    # Оптимизируем поисковый запрос с помощью LLM (сжимаем до ключевых слов)
-    search_query = await _optimize_query_with_llm(current_question)
-    logger.info(
-        "Optimized search term: '%s' (was: '%s')", search_query, current_question
-    )
-
-    # Получаем глобальный оркестратор
     orchestrator = get_orchestrator()
+    total_new_count = 0
+    all_kept_evidence = []
 
-    # Вызываем поиск по цепочке Tavily -> Brave -> SerpAPI
-    # Метод возвращает tuple[list[SearchResultItem], dict]
-    raw_hits, meta = await orchestrator.search(query=search_query, max_results=5)
-    logger.info("Orchestrator results | raw_items=%s meta=%s", len(raw_hits), meta)
-
-    evidence_list: list[str] = []
-
-    if raw_hits:
-        # Сериализуем SearchResultItem в текстовый блок для LLM
-        raw_txt_entries = [
-            f"Title: {hit.title}\nContent: {hit.snippet}\nURL: {hit.url}"
-            for hit in raw_hits
-        ]
-
-        messages = [
-            SystemMessage(content=FORMAT_SYSTEM),
-            HumanMessage(
-                content=f"Question: {current_question}\nRaw Results:\n"
-                + "\n\n".join(raw_txt_entries)
-            ),
-        ]
-
-        try:
-            raw_response = await invoke_messages(messages)
-            parsed = safe_json(raw_response)
-
-            raw_evidence = (
-                parsed.get("evidence", []) if isinstance(parsed, dict) else []
-            )
-            for item in raw_evidence:
-                if isinstance(item, (list, tuple)) and len(item) >= 2:
-                    evidence_list.append(f"{item[0]} ({item[1]})")
-                elif isinstance(item, str):
-                    evidence_list.append(item)
-        except Exception as exc:
-            logger.warning("LLM formatting failed: %s. Using raw fallback.", exc)
-
-    # КРИТИЧЕСКИЙ ФОЛБЕК: Спасаем граф от zero-evidence стоппера, если LLM выдала мусор
-    if not evidence_list and raw_hits:
-        logger.warning(
-            "LLM returned empty or invalid evidence. Applying RAW fallback for %s items.",
-            len(raw_hits),
+    # Веерный поиск по критическим лакунам отчёта
+    for current_question in topics_to_research:
+        search_query = await _optimize_query_with_llm(current_question)
+        logger.info(
+            "Targeted technical query: '%s' (for topic: '%s')",
+            search_query,
+            current_question[:40],
         )
-        for i, hit in enumerate(raw_hits[:10]):
-            source = hit.url or hit.title or "Web Search"
-            evidence_list.append(f"Discovery {i+1}: {hit.snippet.strip()} ({source})")
 
-    # Дедупликация собранных данных относительно глобального стейта
-    kept_evidence, new_count = _deduplicate_evidence(evidence_list, state)
+        # Расширяем выборку до 7 результатов, чтобы зацепить глубокие доки/блоги
+        raw_hits, meta = await orchestrator.search(query=search_query, max_results=7)
+        logger.info(
+            "Orchestrator fetched %s items for query: %s", len(raw_hits), search_query
+        )
 
-    # Аппендим в историю, сохраняя результаты прошлых итераций
-    state.search_results.append(
-        SearchResult(question_id=current_question, evidence=kept_evidence)
-    )
+        evidence_list: list[str] = []
 
-    state.new_evidence_count = new_count
-    state.new_evidence_found = new_count > 0
+        if raw_hits:
+            raw_txt_entries = [
+                f"Title: {hit.title}\nContent: {hit.snippet}\nURL: {hit.url}"
+                for hit in raw_hits
+            ]
+
+            messages = [
+                SystemMessage(content=FORMAT_SYSTEM),
+                HumanMessage(
+                    content=f"Question: {current_question}\nRaw Results:\n"
+                    + "\n\n".join(raw_txt_entries)
+                ),
+            ]
+
+            try:
+                raw_response = await invoke_messages(messages)
+                parsed = safe_json(raw_response)
+
+                raw_evidence = (
+                    parsed.get("evidence", []) if isinstance(parsed, dict) else []
+                )
+                for item in raw_evidence:
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        evidence_list.append(f"{item[0]} ({item[1]})")
+                    elif isinstance(item, str):
+                        evidence_list.append(item)
+            except Exception as exc:
+                logger.warning("LLM formatting failed: %s. Using raw fallback.", exc)
+
+        # Критический фолбек
+        if not evidence_list and raw_hits:
+            logger.warning("LLM mapping failed, injecting raw snippet fallbacks.")
+            for i, hit in enumerate(raw_hits[:4]):
+                source = hit.url or hit.title or "Search Engine"
+                evidence_list.append(
+                    f"Technical Data: {hit.snippet.strip()} ({source})"
+                )
+
+        kept_evidence, new_count = _deduplicate_evidence(evidence_list, state)
+        total_new_count += new_count
+        all_kept_evidence.extend(kept_evidence)
+
+        state.search_results.append(
+            SearchResult(question_id=current_question, evidence=kept_evidence)
+        )
+
+    state.new_evidence_count = total_new_count
+    state.new_evidence_found = total_new_count > 0
 
     logger.info(
-        "Search node done | evidence_items=%s new_evidence=%s (count=%s)",
-        len(kept_evidence),
-        state.new_evidence_found,
-        new_count,
+        "Multi-query search step complete | Found %s new unique records across %s paths",
+        total_new_count,
+        len(topics_to_research),
     )
     return state
-
-
-def _optimize_search_query(question: str) -> str:
-    """Strip fluff from the query to make it friendly for search providers."""
-    clean = question.strip().rstrip("?").lower()
-    if "traction in 2024" in clean:
-        return "top ai coding assistants 2024 key features traction"
-    if "adoption" in clean:
-        return "developer adoption trends ai coding assistants 2024 2025"
-    if "capabilities" in clean or "multi-file" in clean:
-        return (
-            "ai coding assistants multi file editing autonomous bug fixing capabilities"
-        )
-    if "productivity" in clean or "quality" in clean:
-        return "ai coding assistants metrics productivity code quality statistics"
-    if "challenges" in clean or "limitation" in clean:
-        return "ai coding assistants security vulnerabilities accuracy limitations"
-    if "workflows" in clean or "toolchains" in clean:
-        return "integrate ai coding assistants software toolchain workflow enterprise"
-
-    words = [w for w in question.split() if len(w) > 2]
-    return " ".join(words[:8])
 
 
 def _deduplicate_evidence(
@@ -161,27 +138,38 @@ def _deduplicate_evidence(
 
 
 async def _optimize_query_with_llm(question: str) -> str:
-    """Degrade and compress human questions into search-friendly keywords using LLM."""
+    """Transform requirements into highly specific technical search queries anchored to the actual execution date."""
+    # Динамически вычисляем текущую дату, чтобы агент знал, где он находится
+    now = datetime.date.today()
+    current_year = now.year
+
+    # Формируем человекочитаемый контекст (например, "June 2026")
+    current_month_year = now.strftime("%B %Y")
+
     system_prompt = (
-        "You are a search query optimizer. Compress human questions into 3-6 raw keywords.\n"
-        "Strip question words (what, how, which), fluff, and punctuation.\n"
-        "Output ONLY the raw keywords, lowercase, no quotes."
+        "You are an expert infrastructure search query optimizer.\n"
+        f"CRITICAL TEMPORAL CONTEXT: The current time is {current_month_year}. You are investigating the absolute "
+        f"latest data, breakthroughs, critical incidents, and benchmarks up to {current_month_year}.\n"
+        "Convert the input topic into a highly targeted, keyword-dense search query for a technical web search.\n"
+        "Preserve exact metrics, product names, and architecture keywords (e.g., 'SWE-bench', 'RAG', 'CVE').\n"
+        f"If searching for trends or vulnerabilities, implicitly pivot towards recent {current_year} data.\n"
+        "DO NOT use outdated chronological markers or past target years unless explicitly required.\n"
+        "Output ONLY the raw keywords, lowercase, no quotes, no punctuation. Maximum 8 words."
     )
 
     messages = [
         SystemMessage(content=system_prompt),
-        HumanMessage(content=f"Question: {question}"),
+        HumanMessage(content=f"Topic to optimize: {question}"),
     ]
 
     try:
-        raw_response = await invoke_messages(messages, max_tokens=20, temperature=0.1)
+        raw_response = await invoke_messages(messages, max_tokens=25, temperature=0.1)
         cleaned = raw_response.strip().lower().replace('"', "").replace("'", "")
-        if cleaned and len(cleaned.split()) <= 10:
+        if cleaned and len(cleaned.split()) <= 12:
             return cleaned
     except Exception as exc:
-        logger.warning(
-            "LLM query degradation failed: %s. Using naive word-cut fallback.", exc
-        )
+        logger.warning("LLM query temporal optimization failed: %s", exc)
 
+    # Умный фолбек: если модель легла, динамически подливаем текущий год к словам
     words = [w for w in question.strip().rstrip("?").lower().split() if len(w) > 3]
-    return " ".join(words[:6])
+    return f"{' '.join(words[:5])} {current_year}"

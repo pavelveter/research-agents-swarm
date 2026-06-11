@@ -1,26 +1,75 @@
 # Research Swarm
 
-A multi-agent research system powered by LangGraph, MCP, Langfuse, and OpenAI-compatible LLMs.
+A multi-agent research system powered by LangGraph, MCP, Langfuse, OpenAI-compatible LLMs, Qdrant (vector DB), and Ollama (local embeddings).
 
 ## Architecture
 
 ```
-User Query -> Planner -> Searcher -> Fact Checker -> Summarizer -> Judge
-                                                            |
+                          ┌─────────────────────────────────┐
+                          │  Qdrant + Ollama Vector Memory   │
+                          │  (semantic dedup & retrieval)    │
+                          └──────────┬──────────────────────┘
+                                     │
+  User Query -> Planner -> Searcher -> Fact Checker -> Summarizer -> Judge
+                                                                  |
                                                     score < 80 ? -> Searcher (targeted)
                                                     score >= 80 ? -> END
 ```
 
 Agents:
 - **Planner**: produces 3-7 research questions. On iteration 0 creates a full plan; on subsequent iterations refines the plan based on missing topics from the Judge.
-- **Searcher**: gathers evidence via MCP tools. On iteration 0 performs a full search across all research questions. On subsequent iterations performs **targeted searches** focused exclusively on missing topics identified by the Judge.
-- **Fact Checker**: validates and filters evidence.
-- **Summarizer**: writes a cited report from validated facts.
-- **Judge**: scores the report (0-100), identifies strengths, weaknesses, missing topics, and provides detailed reasoning. Decides if more research is needed.
+- **Searcher**: gathers evidence via 5 search providers with automatic fallback (Tavily → Brave → SerpAPI → SearXNG → DuckDuckGo). On iteration 0 performs a **full search** across all research questions. On subsequent iterations performs **targeted searches** focused exclusively on missing topics identified by the Judge.
+- **Fact Checker**: validates evidence through a 3-layer pipeline: (1) semantic pre-filtering via Qdrant, (2) LLM validation, (3) commits unique facts to Qdrant. Skips LLM entirely for semantic duplicates — saving tokens and cost.
+- **Summarizer**: pulls top-25 semantically relevant facts from Qdrant vector storage, compiles a cited markdown report.
+- **Judge**: scores the report (0-100) with component breakdown (coverage /30, evidence /20, sources /20, depth /15, completeness /15). Identifies strengths, weaknesses, missing topics, and detailed reasoning. Decides if more research is needed.
+- **Vector Memory Layer**: Qdrant + Ollama (`nomic-embed-text`) — handles semantic deduplication, long-term fact storage, and context retrieval across iterations.
+
+## Infrastructure (Docker)
+
+The project uses Docker Compose for local infrastructure:
+
+```bash
+docker compose up -d
+```
+
+Services:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| **Qdrant** | `6333` (REST), `6334` (gRPC) | Vector database for semantic fact storage & dedup |
+| **Ollama** | `11434` | Local LLM inference engine for embeddings |
+| **ollama-provisioner** | — | Auto-downloads `nomic-embed-text` model on startup |
+
+After `docker compose up -d`, Ollama provisions the embedding model. You can verify:
+
+```bash
+curl http://localhost:6333/healthz          # Qdrant health
+ollama list                                  # should show nomic-embed-text
+```
+
+## Vector Memory Layer
+
+Every validated fact is stored in Qdrant with a 768-dim embedding from Ollama's `nomic-embed-text` model. This enables three key capabilities:
+
+### 1. Semantic Deduplication
+
+Before the Fact Checker sends evidence to the LLM for validation, each item is checked against Qdrant using cosine similarity (threshold: 0.92). Already-seen facts are skipped — saving LLM tokens and cost.
+
+### 2. Cross-Iteration Memory
+
+Facts persist across research loop iterations. When the Searcher brings in new evidence, the Fact Checker only validates what's *actually new* — not what was already found in previous iterations.
+
+### 3. Semantic Stagnation Detection
+
+When Qdrant filters ALL incoming facts as duplicates, the router triggers a `no_new_evidence` stop condition — the research has exhausted all novel information and should terminate rather than burn tokens re-validating the same content.
+
+### 4. Smart Summarization
+
+The Summarizer doesn't see raw search results. Instead, it retrieves the top-25 most semantically relevant facts from Qdrant via `query_points()`. This means reports are built from de-duplicated, cross-iteration, quality-filtered context.
 
 ## Iterative Research Loop
 
-The workflow supports a production-grade iterative research loop with five safety mechanisms:
+The workflow supports a production-grade iterative research loop with six safety mechanisms:
 
 ### Quality Gate Design
 
@@ -36,7 +85,8 @@ Research stops when ANY of these conditions is met:
 | **B** | `iteration >= max_iterations` (default 3) | `max_iterations_reached` |
 | **C** | Score improvement too small (`delta < 5`) | `insufficient_progress` |
 | **D** | No additional missing topics reported by Judge | `no_missing_topics` |
-| **E** | No new evidence found during latest search | `no_new_evidence` |
+| **E** | Search infrastructure failed (all providers) | `retrieval_failed` |
+| **F** | No new evidence — Qdrant filtered everything as duplicate | `no_new_evidence` |
 
 ### Judge-Driven Targeted Research
 
@@ -64,6 +114,14 @@ The `ResearchState` tracks the full lifecycle:
 - `missing_topics` — topics the Judge identified as gaps
 - `no_progress` — whether research stalled
 - `stop_reason` — why the loop ended
+- `retrieval_failed` — whether all search providers failed
+- `retrieval_failure_reason` — detailed failure explanation
+- `search_providers_tried` — list of provider slugs that were attempted
+- `search_provider_used` — which provider ultimately returned results
+- `evidence_quality` — structured metadata per evidence item (content, source, provider, confidence, retrieved_at)
+- `search_mode` — "full" (iteration 0) or "targeted" (subsequent iterations)
+- `coverage_score`, `evidence_score`, `source_score`, `depth_score`, `completeness_score` — Judge component scores
+- `new_evidence_count` — how many truly new facts were stored in Qdrant
 - `new_evidence_found` — whether the latest search found anything new
 
 ## Setup
@@ -71,11 +129,12 @@ The `ResearchState` tracks the full lifecycle:
 ```bash
 cp .env.example .env
 uv sync
+docker compose up -d      # Start Qdrant + Ollama
 ```
 
 Ensure `.env` contains your `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`,
 `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`,
-`MCP_HOST`, and `MCP_PORT`.
+`MCP_HOST`, `MCP_PORT`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SERPAPI_API_KEY`, `SEARXNG_BASE_URL`.
 
 ## Commands
 
