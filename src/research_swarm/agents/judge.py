@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from research_swarm.graph.state import ResearchState
 from research_swarm.llm.client import invoke_messages
 from research_swarm.observability.langfuse import trace_agent
-from research_swarm.utils import safe_json
+from research_swarm.utils import safe_json, render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -67,29 +67,11 @@ async def judge(state: ResearchState) -> ResearchState:
         cutoff_year = current_year - 2
 
         # Полностью динамический промпт без хардкода конкретных моделей
-        judge_system_prompt = (
-            f"You are a cynical, hardcore AI Infrastructure Judge evaluating engineering data in {current_context_time}.\n"
-            "Strictly evaluate the report for technical, architectural, and production-grade validity.\n"
-            f"Reject historical marketing fluff and baseline tech older than {cutoff_year} as 'current trends'.\n\n"
-            "TEMPORAL ANCHORING & VERSIONING:\n"
-            f"1. Evaluate all findings relative to the current baseline of {current_context_time}.\n"
-            f"2. You expect the report to cover the absolute frontier models, developer tools, and agentic runtimes active in {current_year}.\n"
-            "3. Do NOT invent or extrapolate future version numbers (e.g., if a model family is currently at v3, do not demand v5.5 unless it actually exists in the wild).\n"
-            "4. Base your missing topics on active engineering ecosystems (e.g., state-of-the-art proprietary and open-source models, agent runtimes, and active IDE extensions).\n\n"
-            "Component scoring guidelines:\n"
-            "- Coverage (0-30): Explicit coverage of current state-of-the-art agentic runtimes, IDE integrations, and active legal/copyright boundaries.\n"
-            "- Evidence Quality (0-20): Real, recent industry-standard benchmarks (e.g., SWE-bench variants, LiveCodeBench, or current leading evals) vs commercial claims.\n"
-            f"- Source Diversity (0-20): Academic papers, technical post-mortems, engineering blogs, and CVE databases targeting vulnerabilities discovered up to {current_year}.\n"
-            "- Technical Depth (0-15): Low-level mechanics (context window retrieval engineering, chunk overlap strategies, production re-ranking pipelines, multi-agent state persistence).\n"
-            "- Completeness (0-15): Deep analysis of operational risks, data poisoning, RCE exploits via tool usage, and enterprise license compliance tools.\n\n"
-            "CRITICAL DIRECTIONS FOR MISSING TOPICS:\n"
-            "Formulate items in 'missing_topics' as explicit, highly targeted tasks containing specific engineering keywords, "
-            f"focusing on gaps relevant to the {current_year} infrastructure landscape.\n"
-            "Example format: 'SWE-bench scores for latest frontier models vs leading open-source models'.\n\n"
-            "Return ONLY valid JSON with this exact shape:\n"
-            '{ "coverage_score": 0, "evidence_score": 0, "source_score": 0, "depth_score": 0, '
-            '"completeness_score": 0, "score": 0, "needs_research": true, "missing_topics": [], '
-            '"strengths": [], "weaknesses": [], "reasoning": "..." }'
+        judge_system_prompt = render_prompt(
+            "judge_judge_system_prompt.jinja",
+            current_context_time=current_context_time,
+            cutoff_year=cutoff_year,
+            current_year=current_year,
         )
 
         report_text = state.final_report.summary if state.final_report else ""

@@ -11,17 +11,11 @@ from research_swarm.llm.client import invoke_messages
 from research_swarm.logging_config import preview
 from research_swarm.memory.vector_storage import get_memory_bank
 from research_swarm.observability.langfuse import trace_agent
-from research_swarm.utils import safe_json
+from research_swarm.utils import safe_json, render_prompt
 
 logger = logging.getLogger(__name__)
 
-SUMMARIZER_SYSTEM = (
-    "You are an expert technical research compiler. Produce a deep, highly structured report "
-    "using ONLY the validated facts provided. Group facts logically into technical sections, "
-    "use clear markdown lists, bullet points, and headers. Include inline citations like [1], [2].\n"
-    "Return ONLY valid JSON with keys 'summary' and 'sources':\n"
-    '{ "summary": "Markdown content goes here...", "sources": ["https://example.com"] }'
-)
+# Prompts moved to jinja
 
 
 async def summarize(state: ResearchState) -> ResearchState:
@@ -43,7 +37,7 @@ async def summarize(state: ResearchState) -> ResearchState:
             facts_block = "\n".join(f"- {f}" for f in facts)
 
         messages = [
-            SystemMessage(content=SUMMARIZER_SYSTEM),
+            SystemMessage(content=render_prompt("summarizer_summarizer_system.jinja")),
             HumanMessage(
                 content=(
                     f"Global Research Topic: {state.query}\n"

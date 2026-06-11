@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from jinja2 import Template
+import os
 
+def render_prompt(template_name: str, **kwargs) -> str:
+    \"\"\"Load and render a prompt from the promts directory.\"\"\"
+    path = os.path.join(os.getcwd(), "src", "research_swarm", "promts", template_name)
+    with open(path, "r", encoding="utf-8") as f:
+        template = Template(f.read())
+    return template.render(**kwargs)
 
 def _strip_json_fences(text: str) -> str:
     cleaned = text.strip()

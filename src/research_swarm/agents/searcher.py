@@ -11,22 +11,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from research_swarm.graph.state import ResearchState, SearchResult
 from research_swarm.llm.client import invoke_messages
 from research_swarm.search.orchestrator import get_orchestrator
-from research_swarm.utils import safe_json
+from research_swarm.utils import safe_json, render_prompt
 
 logger = logging.getLogger(__name__)
 
-FORMAT_SYSTEM = (
-    "You are a research evidence formatter. You receive raw search results.\n"
-    "Your ONLY job is to extract key findings into a JSON object with an 'evidence' key.\n"
-    "Each item inside 'evidence' MUST be a list containing exactly two strings:\n"
-    "['fact or key finding', 'source name or URL'].\n\n"
-    "Example output:\n"
-    "{\n"
-    "  'evidence': [\n"
-    "    ['AI assistants boost productivity by 25%', 'https://example.com']\n"
-    "  ]\n"
-    "}"
-)
+# FORMAT_SYSTEM moved to jinja
 
 
 async def search(state: ResearchState) -> ResearchState:
@@ -68,7 +57,7 @@ async def search(state: ResearchState) -> ResearchState:
             ]
 
             messages = [
-                SystemMessage(content=FORMAT_SYSTEM),
+                SystemMessage(content=render_prompt("searcher_format_system.jinja")),
                 HumanMessage(
                     content=f"Question: {current_question}\nRaw Results:\n"
                     + "\n\n".join(raw_txt_entries)
@@ -146,15 +135,10 @@ async def _optimize_query_with_llm(question: str) -> str:
     # Формируем человекочитаемый контекст (например, "June 2026")
     current_month_year = now.strftime("%B %Y")
 
-    system_prompt = (
-        "You are an expert infrastructure search query optimizer.\n"
-        f"CRITICAL TEMPORAL CONTEXT: The current time is {current_month_year}. You are investigating the absolute "
-        f"latest data, breakthroughs, critical incidents, and benchmarks up to {current_month_year}.\n"
-        "Convert the input topic into a highly targeted, keyword-dense search query for a technical web search.\n"
-        "Preserve exact metrics, product names, and architecture keywords (e.g., 'SWE-bench', 'RAG', 'CVE').\n"
-        f"If searching for trends or vulnerabilities, implicitly pivot towards recent {current_year} data.\n"
-        "DO NOT use outdated chronological markers or past target years unless explicitly required.\n"
-        "Output ONLY the raw keywords, lowercase, no quotes, no punctuation. Maximum 8 words."
+    system_prompt = render_prompt(
+        "searcher_system_prompt.jinja",
+        current_month_year=current_month_year,
+        current_year=current_year,
     )
 
     messages = [

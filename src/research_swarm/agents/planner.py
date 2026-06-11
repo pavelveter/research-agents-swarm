@@ -11,27 +11,11 @@ from research_swarm.graph.state import ResearchPlan, ResearchState
 from research_swarm.llm.client import invoke_messages
 from research_swarm.logging_config import preview
 from research_swarm.observability.langfuse import trace_agent
-from research_swarm.utils import safe_json
+from research_swarm.utils import safe_json, render_prompt
 
 logger = logging.getLogger(__name__)
 
-PLAN_SYSTEM = (
-    "You are a research planner. Given a user research topic, decompose it into "
-    "3-7 focused research questions. Return ONLY valid JSON with keys:\n"
-    "{\n"
-    '  "goal": "string describing main objective",\n'
-    '  "research_questions": ["question 1", "question 2"]\n'
-    "}"
-)
-
-REPLAN_SYSTEM = (
-    "You are an AI Infrastructure Re-planner. Review existing questions and missing topics.\n"
-    "Generate 1-3 highly technical, targeted questions to bridge the gaps. "
-    "Do not use generic verbs like 'analyze' or 'study'. Use operational tasks like "
-    "'Compare the AST parsing overhead in Cursor vs Windsurf', 'Identify the specific "
-    "per-engineer license compliance risks of Copilot in enterprise VPC environments'.\n"
-    "Return ONLY valid JSON with keys 'goal' and 'research_questions'."
-)
+# Prompts moved to jinja
 
 
 async def plan(state: ResearchState) -> ResearchState:
@@ -100,7 +84,7 @@ async def plan(state: ResearchState) -> ResearchState:
 async def _initial_plan(state: ResearchState) -> dict[str, Any]:
     logger.info("Planning research | mode=initial query=%s", preview(state.query, 80))
     messages = [
-        SystemMessage(content=PLAN_SYSTEM),
+        SystemMessage(content=render_prompt("planner_plan_system.jinja")),
         HumanMessage(content=f"Topic: {state.query}"),
     ]
     try:
@@ -120,7 +104,7 @@ async def _refine_plan(state: ResearchState) -> dict[str, Any]:
         topics,
     )
     messages = [
-        SystemMessage(content=REPLAN_SYSTEM),
+        SystemMessage(content=render_prompt("planner_replan_system.jinja")),
         HumanMessage(
             content=(
                 "Existing questions:\n" + "\n".join(f"- {q}" for q in existing) + "\n\n"

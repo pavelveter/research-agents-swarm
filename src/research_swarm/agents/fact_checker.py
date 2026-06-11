@@ -12,18 +12,11 @@ from research_swarm.graph.state import ResearchState, ValidatedResult
 from research_swarm.llm.client import invoke_messages
 from research_swarm.memory.vector_storage import get_memory_bank
 from research_swarm.observability.langfuse import trace_agent
+from research_swarm.utils import render_prompt
 
 logger = logging.getLogger(__name__)
 
-FACTCHECK_SYSTEM = (
-    "You are a critical, zero-trust Technical Fact Checker. Validate each evidence item "
-    "against technical reality. Kill marketing exaggerations, non-existent models, "
-    "and invalid pricing claims. Every fact MUST contain concrete verifiable metrics or "
-    "direct references to active tools (Cursor, Copilot, Windsurf, Claude Code).\n"
-    "If an evidence item mentions speculative or future tech as currently available, "
-    "you MUST put it into 'rejected_facts'.\n"
-    'Return ONLY valid JSON: { "validated_facts": ["fact"], "rejected_facts": ["fact"] }'
-)
+# Prompts moved to jinja
 
 
 async def fact_check(state: ResearchState) -> ResearchState:
@@ -88,7 +81,7 @@ async def fact_check(state: ResearchState) -> ResearchState:
         # Слой 2: LLM Валидация оставшихся уникальных улик
         evidence_block = "\n".join(f"- {item}" for item in unique_incoming)
         messages = [
-            SystemMessage(content=FACTCHECK_SYSTEM),
+            SystemMessage(content=render_prompt("fact_checker_factcheck_system.jinja")),
             HumanMessage(
                 content=(
                     f"Task context: Validate new evidence gathered for question: {latest_search.question_id}\n"
