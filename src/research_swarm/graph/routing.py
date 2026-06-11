@@ -8,10 +8,10 @@ from research_swarm.graph.state import ResearchState
 logger = logging.getLogger(__name__)
 
 
-# Инфраструктурные константы лимитов графа
-PASS_THRESHOLD = 80  # Целевой скор для успешного завершения ресерча
-MAX_ITERATIONS = 5  # Предохранитель от бесконечного выжора токенов
-MIN_DELTA = 1  # Минимальный прогресс скора между итерациями
+# Graph limit infrastructure constants
+PASS_THRESHOLD = 80  # Target score for successful research completion
+MAX_ITERATIONS = 5  # Safety net against infinite token consumption
+MIN_DELTA = 1  # Minimum score progress between iterations
 
 
 def _compute_delta(state: ResearchState) -> None:
@@ -24,13 +24,13 @@ def _compute_delta(state: ResearchState) -> None:
 
 
 def _evaluate_stop_conditions(state: ResearchState) -> str | None:
-    """Детерминированная оценка условий остановки циклического графа.
+    """Deterministic evaluation of cyclic graph stop conditions.
 
-    Анализирует текущее состояние (Shared State) LangGraph и возвращает строковый
-    идентификатор терминального узла (маршрут), либо None, если нужно продолжать.
+    Analyzes the current LangGraph Shared State and returns a string
+    identifier of the terminal node (route), or None if it should continue.
     """
 
-    # 1. Проверяем достижение целевого качества отчета (Успешный финиш)
+    # 1. Check if target report quality is achieved (Successful finish)
     if state.judge_score >= PASS_THRESHOLD:
         logger.info(
             "Stop condition triggered: TARGET SCORE MET | Score: %s >= %s",
@@ -39,8 +39,8 @@ def _evaluate_stop_conditions(state: ResearchState) -> str | None:
         )
         return "score_threshold_met"
 
-    # 2. Проверяем жесткий лимит по итерациям (Предохранитель / Hard Limit)
-    # Берем max_iterations из стейта, либо фолбэк на глобальную константу
+    # 2. Check hard iteration limit (Safety net / Hard Limit)
+    # Use max_iterations from state, or fallback to global constant
     max_iter = getattr(state, "max_iterations", MAX_ITERATIONS)
     if state.iteration >= max_iter:
         logger.warning(
@@ -50,16 +50,16 @@ def _evaluate_stop_conditions(state: ResearchState) -> str | None:
         )
         return "max_iterations_reached"
 
-    # 3. Проверяем векторное зацикливание (ВЫХОД ПО СЕМАНТИЧЕСКОМУ ДУБЛИРОВАНИЮ)
-    # Если Qdrant отфильтровал все новые факты как дубликаты из прошлых шагов
+    # 3. Check for vector looping (EXIT BY SEMANTIC DUPLICATION)
+    # If Qdrant filtered all new facts as duplicates from previous steps
     if hasattr(state, "new_evidence_found") and not state.new_evidence_found:
         logger.info(
             "Stop condition triggered: SEMANTIC STAGNATION | Qdrant filtered all facts as duplicates."
         )
         return "no_new_evidence"
 
-    # 4. Проверяем стагнацию математического скора Судьи (Метрический даунгрейд)
-    # Проверяется только со второй итерации (iteration > 0), когда есть с чем сравнивать
+    # 4. Check for mathematical score stagnation by Judge (Metric downgrade)
+    # Checked only from the second iteration (iteration > 0), when there is something to compare with
     if (
         state.iteration > 0
         and state.score_delta is not None
@@ -72,14 +72,14 @@ def _evaluate_stop_conditions(state: ResearchState) -> str | None:
         )
         return "insufficient_progress"
 
-    # 5. Проверяем, остались ли вообще у Судьи нераскрытые темы
+    # 5. Check if Judge has any unresolved topics left
     if not state.missing_topics:
         logger.info(
             "Stop condition triggered: NO MISSING TOPICS | Research queue is empty."
         )
         return "no_missing_topics"
 
-    # Ни одно стоп-условие не выполнено -> Продолжаем движение по графу (Decision: CONTINUE)
+    # No stop condition met -> Continue traversing the graph (Decision: CONTINUE)
     return None
 
 

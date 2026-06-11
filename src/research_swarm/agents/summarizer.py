@@ -22,10 +22,10 @@ async def summarize(state: ResearchState) -> ResearchState:
     """Produce final comprehensive report pulling clean context out of Qdrant memory layer."""
     with trace_agent("summarizer", input_data={"query": state.query}) as tracer:
 
-        # Подключаем наш векторный банк памяти
+        # Connect our vector memory bank
         memory = get_memory_bank()
 
-        # Вытаскиваем только самое важное и дедуплицированное
+        # Extract only the most important and deduplicated
         facts = await memory.retrieve_context(query=state.query, limit=25)
         logger.info(
             "Summarizer retrieved %d top unique semantic facts from Qdrant", len(facts)
@@ -49,7 +49,7 @@ async def summarize(state: ResearchState) -> ResearchState:
         raw = await invoke_messages(messages)
         parsed = safe_json(raw)
 
-        # Записываем отчет обратно в стейт графа
+        # Write report back to graph state
         state.final_report = ResearchReport(
             summary=str(parsed.get("summary", "")),
             sources=[str(s) for s in parsed.get("sources", [])],

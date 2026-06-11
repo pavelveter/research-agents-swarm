@@ -51,7 +51,7 @@ async def plan(state: ResearchState) -> ResearchState:
                 new_questions = [str(q) for q in plan_data["research_questions"]]
 
                 if state.plan:
-                    # КРИТИЧЕСКИЙ ФИКС: Не затираем, а мержим списки вопросов
+                    # CRITICAL FIX: Merge question lists instead of overwriting
                     existing_set = set(state.plan.research_questions)
                     deduped_new = [q for q in new_questions if q not in existing_set]
 

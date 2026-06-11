@@ -20,7 +20,7 @@ class SwarmMemoryBank:
         self.client = AsyncQdrantClient(url=qdrant_url, api_key=None)
         self.collection_name = "swarm_validated_facts"
 
-        # Локальная конфигурация Ollama
+        # Local Ollama configuration
         self.ollama_url = "http://127.0.0.1:11434/api/embeddings"
         self.embedding_model = "nomic-embed-text"
 
@@ -96,7 +96,7 @@ class SwarmMemoryBank:
             new_facts_count += 1
 
         if points:
-            # Метод upsert в AsyncQdrantClient асинхронный и называется так же
+            # The upsert method in AsyncQdrantClient is asynchronous and has the same name
             await self.client.upsert(
                 collection_name=self.collection_name, points=points
             )
@@ -109,7 +109,7 @@ class SwarmMemoryBank:
         await self._ensure_collection()
         vector = await self._embed_string(query)
 
-        # ФИКС: Заменен .search() на асинхронный метод .query_points()
+        # FIX: Replaced .search() with async method .query_points()
         response = await self.client.query_points(
             collection_name=self.collection_name,
             query=vector,
@@ -131,7 +131,7 @@ class SwarmMemoryBank:
         else:
             vector = text_or_vector
 
-        # ФИКС: Заменен .search() на асинхронный метод .query_points()
+        # FIX: Replaced .search() with async method .query_points()
         response = await self.client.query_points(
             collection_name=self.collection_name,
             query=vector,

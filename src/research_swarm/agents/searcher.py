@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def search(state: ResearchState) -> ResearchState:
     """Execute search query via orchestrator fallback chain and guarantee evidence extraction."""
-    # ФИКС: Вместо застревания на missing_topics[0], берём срез топ-3 тем
+    # FIX: Instead of getting stuck on missing_topics[0], take top-3 topics slice
     topics_to_research = []
     if state.missing_topics:
         topics_to_research = state.missing_topics[:3]
@@ -33,7 +33,7 @@ async def search(state: ResearchState) -> ResearchState:
     total_new_count = 0
     all_kept_evidence = []
 
-    # Веерный поиск по критическим лакунам отчёта
+    # Fan-out search for critical report gaps
     for current_question in topics_to_research:
         search_query = await _optimize_query_with_llm(current_question)
         logger.info(
@@ -42,7 +42,7 @@ async def search(state: ResearchState) -> ResearchState:
             current_question[:40],
         )
 
-        # Расширяем выборку до 7 результатов, чтобы зацепить глубокие доки/блоги
+        # Expand sample to 7 results to catch deep docs/blogs
         raw_hits, meta = await orchestrator.search(query=search_query, max_results=7)
         logger.info(
             "Orchestrator fetched %s items for query: %s", len(raw_hits), search_query
@@ -79,7 +79,7 @@ async def search(state: ResearchState) -> ResearchState:
             except Exception as exc:
                 logger.warning("LLM formatting failed: %s. Using raw fallback.", exc)
 
-        # Критический фолбек
+        # Critical fallback
         if not evidence_list and raw_hits:
             logger.warning("LLM mapping failed, injecting raw snippet fallbacks.")
             for i, hit in enumerate(raw_hits[:4]):
@@ -128,11 +128,11 @@ def _deduplicate_evidence(
 
 async def _optimize_query_with_llm(question: str) -> str:
     """Transform requirements into highly specific technical search queries anchored to the actual execution date."""
-    # Динамически вычисляем текущую дату, чтобы агент знал, где он находится
+    # Dynamically calculate current date so agent knows current time
     now = datetime.date.today()
     current_year = now.year
 
-    # Формируем человекочитаемый контекст (например, "June 2026")
+    # Form human-readable context (e.g., "June 2026")
     current_month_year = now.strftime("%B %Y")
 
     system_prompt = render_prompt(
@@ -154,6 +154,6 @@ async def _optimize_query_with_llm(question: str) -> str:
     except Exception as exc:
         logger.warning("LLM query temporal optimization failed: %s", exc)
 
-    # Умный фолбек: если модель легла, динамически подливаем текущий год к словам
+    # Smart fallback: if model fails, dynamically append current year to words
     words = [w for w in question.strip().rstrip("?").lower().split() if len(w) > 3]
     return f"{' '.join(words[:5])} {current_year}"

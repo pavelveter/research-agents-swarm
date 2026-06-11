@@ -60,13 +60,13 @@ async def judge(state: ResearchState) -> ResearchState:
             "iteration": state.iteration,
         },
     ) as tracer:
-        # Извлекаем точное системное время для построения скользящего окна актуальности
+        # Extract precise system time to build sliding window of relevance
         now = datetime.date.today()
         current_context_time = now.strftime("%B %Y")
         current_year = now.year
         cutoff_year = current_year - 2
 
-        # Полностью динамический промпт без хардкода конкретных моделей
+        # Fully dynamic prompt without hardcoded specific models
         judge_system_prompt = render_prompt(
             "judge_judge_system_prompt.jinja",
             current_context_time=current_context_time,

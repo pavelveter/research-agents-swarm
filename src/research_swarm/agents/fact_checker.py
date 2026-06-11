@@ -32,7 +32,7 @@ async def fact_check(state: ResearchState) -> ResearchState:
             )
             return state
 
-        # Берем ТОЛЬКО свежий батч улик из последнего поиска
+        # Take ONLY the fresh batch of evidence from the last search
         latest_search = state.search_results[-1]
         raw_evidence = latest_search.evidence
 
@@ -45,11 +45,11 @@ async def fact_check(state: ResearchState) -> ResearchState:
 
         logger.info("Fact checking | incoming_batch_size=%s", len(raw_evidence))
 
-        # Инициализируем наш Qdrant синглтон
+        # Initialize our Qdrant singleton
         memory = get_memory_bank()
 
-        # ФИКС: Динамический порог схожести. Чем дальше итерация, тем деликатнее фильтруем.
-        # Это позволит протиснуть в отчёт близкие, но семантически разные хардкорные факты.
+        # FIX: Dynamic similarity threshold. The further the iteration, the more delicate the filtering.
+        # This allows close but semantically different hardcore facts to enter the report.
         current_threshold = 0.92 if state.iteration < 2 else 0.86
         logger.info(
             "Fact checking | iteration=%s, dynamic_threshold=%s",
@@ -57,7 +57,7 @@ async def fact_check(state: ResearchState) -> ResearchState:
             current_threshold,
         )
 
-        # Слой 1: Первичная семантическая фильтрация перед отправкой в LLM
+        # Layer 1: Primary semantic filtering before sending to LLM
         unique_incoming: list[str] = []
         for item in raw_evidence:
             if await memory._is_semantic_duplicate(item, threshold=current_threshold):
@@ -78,7 +78,7 @@ async def fact_check(state: ResearchState) -> ResearchState:
             state.new_evidence_found = False
             return state
 
-        # Слой 2: LLM Валидация оставшихся уникальных улик
+        # Layer 2: LLM Validation of remaining unique evidence
         evidence_block = "\n".join(f"- {item}" for item in unique_incoming)
         messages = [
             SystemMessage(content=render_prompt("fact_checker_factcheck_system.jinja")),
@@ -93,17 +93,17 @@ async def fact_check(state: ResearchState) -> ResearchState:
         raw = await invoke_messages(messages)
         parsed = _safe_json(raw)
 
-        # Синхронизируем парсинг с форматом твоего state.py (массив строк)
+        # Synchronize parsing with the state.py format (array of strings)
         validated_list = [str(x) for x in parsed.get("validated_facts", [])]
         rejected_list = [str(x) for x in parsed.get("rejected_facts", [])]
 
-        # Слой 3: Финальный коммит чистых фактов в Qdrant
+        # Layer 3: Final commit of clean facts to Qdrant
         current_task = latest_search.question_id
         new_stored_count = await memory.upsert_facts(
             facts=validated_list, iteration=state.iteration, task=current_task
         )
 
-        # Сохраняем шаг в историю LangGraph
+        # Save step to LangGraph history
         state.validated_results.append(
             ValidatedResult(
                 validated_facts=validated_list,
@@ -111,7 +111,7 @@ async def fact_check(state: ResearchState) -> ResearchState:
             )
         )
 
-        # Управляем флагами роутера на основе РЕАЛЬНО добавленного нового веса
+        # Control router flags based on ACTUALLY added new weight
         state.new_evidence_count = new_stored_count
         state.new_evidence_found = new_stored_count > 0
 
