@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781193171164,
+  "query": "coding assistants evolution context multi-file editing accuracy",
+  "provider": "all",
+  "metadata": {
+    "query": "coding assistants evolution context multi-file editing accuracy",
+    "original_query": "How have the capabilities of coding assistants evolved in terms of context understanding, multi-file editing, and code generation accuracy?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.36397149998811074
+        }
+      }
+    ]
+  }
+}

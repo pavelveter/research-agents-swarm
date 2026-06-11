@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781193176559,
+  "query": "developers adopting tools enterprise security compliance productivity",
+  "provider": "all",
+  "metadata": {
+    "query": "developers adopting tools enterprise security compliance productivity",
+    "original_query": "How are developers adopting these tools in enterprise environments regarding security, compliance, and productivity gains?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.35899895799229853
+        }
+      }
+    ]
+  }
+}

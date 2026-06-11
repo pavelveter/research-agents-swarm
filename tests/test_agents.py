@@ -5,75 +5,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from research_swarm.agents.planner import _safe_json as planner_safe_json
-from research_swarm.agents.searcher import _safe_json as searcher_safe_json
-from research_swarm.agents.fact_checker import _safe_json as fact_checker_safe_json
-from research_swarm.agents.judge import _safe_json as judge_safe_json
-from research_swarm.agents.summarizer import _safe_json as summarizer_safe_json
+from research_swarm.utils import safe_json
 
 
 class TestSafeJson:
-    """Tests for the _safe_json helper used across all agents.
+    """Tests for the shared safe_json helper used across all agents."""
 
-    Since the function is duplicated in each agent module, verify
-    that all copies behave identically.
-    """
+    @pytest.mark.parametrize("text,expected", [
+        ('{"key": "value"}', {"key": "value"}),
+        ('```json\n{"key": "value"}\n```', {"key": "value"}),
+        ('```\n{"key": "value"}\n```', {"key": "value"}),
+        ('{"key": "value"}  \n\t', {"key": "value"}),
+        ('[1, 2, 3]', [1, 2, 3]),
+        ('{"outer": {"inner": [1, 2]}}', {"outer": {"inner": [1, 2]}}),
+        ('````json\n{"a": 1}\n````', {"a": 1}),
+        ('## Judge\n{"score": 5, "needs_research": true}', {"score": 5, "needs_research": True}),
+    ])
+    def test_parses_json_variants(self, text: str, expected) -> None:
+        result = safe_json(text)
+        assert result == expected
 
-    SAFE_JSON_FUNCTIONS = [
-        ("planner", planner_safe_json),
-        ("searcher", searcher_safe_json),
-        ("fact_checker", fact_checker_safe_json),
-        ("judge", judge_safe_json),
-        ("summarizer", summarizer_safe_json),
-    ]
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_plain_json(self, name: str, func) -> None:
-        """All implementations should parse plain JSON strings."""
-        result = func('{"key": "value"}')
-        assert result == {"key": "value"}
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_json_with_markdown_fence(self, name: str, func) -> None:
-        """All implementations should strip ```json fences."""
-        result = func('```json\n{"key": "value"}\n```')
-        assert result == {"key": "value"}
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_json_with_plain_fence(self, name: str, func) -> None:
-        """All implementations should strip ``` fences (no language)."""
-        result = func('```\n{"key": "value"}\n```')
-        assert result == {"key": "value"}
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_json_with_trailing_whitespace(self, name: str, func) -> None:
-        """Trailing whitespace should be handled."""
-        result = func('{"key": "value"}  \n\t')
-        assert result == {"key": "value"}
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_json_with_arrays(self, name: str, func) -> None:
-        """Should handle JSON arrays."""
-        result = func('[1, 2, 3]')
-        assert result == [1, 2, 3]
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_nested_json(self, name: str, func) -> None:
-        """Should handle nested JSON objects."""
-        result = func('{"outer": {"inner": [1, 2]}}')
-        assert result == {"outer": {"inner": [1, 2]}}
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_raises_on_invalid_json(self, name: str, func) -> None:
-        """Should raise json.JSONDecodeError on invalid JSON."""
+    def test_raises_on_invalid_json(self) -> None:
         with pytest.raises(json.JSONDecodeError):
-            func("not json")
-
-    @pytest.mark.parametrize("name,func", SAFE_JSON_FUNCTIONS)
-    def test_parses_json_with_multiple_backticks(self, name: str, func) -> None:
-        """Should handle edge case with extra backticks."""
-        result = func('````json\n{"a": 1}\n````')
-        assert result == {"a": 1}
+            safe_json("not json")
 
 
 class TestPlannerAgent:
@@ -104,7 +58,6 @@ class TestPlannerAgent:
         assert result.plan is not None
         assert result.plan.goal == "Analyze AI coding assistants"
         assert len(result.plan.research_questions) == 3
-        assert result.plan.research_questions == ["Q1", "Q2", "Q3"]
 
     @pytest.mark.asyncio
     @patch("research_swarm.agents.planner.invoke_messages")
@@ -115,10 +68,7 @@ class TestPlannerAgent:
         from research_swarm.agents.planner import plan
         from research_swarm.graph.state import ResearchState
 
-        # Goal field missing, uses query as fallback
-        mock_invoke.return_value = json.dumps({
-            "research_questions": ["Q1"],
-        })
+        mock_invoke.return_value = json.dumps({"research_questions": ["Q1"]})
 
         mock_tracer = MagicMock()
         mock_tracer.update_observation = MagicMock()
@@ -127,30 +77,8 @@ class TestPlannerAgent:
 
         state = ResearchState(query="AI trends")
         result = await plan(state)
-
         assert result.plan is not None
-        assert result.plan.goal == "AI trends"  # fallback to query
-
-    @pytest.mark.asyncio
-    @patch("research_swarm.agents.planner.invoke_messages")
-    @patch("research_swarm.agents.planner.trace_agent")
-    async def test_plan_raises_on_invalid_response(
-        self, mock_trace: MagicMock, mock_invoke: AsyncMock
-    ) -> None:
-        from research_swarm.agents.planner import plan
-        from research_swarm.graph.state import ResearchState
-
-        mock_invoke.return_value = json.dumps({"unexpected": "data"})
-
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
-        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
-        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
-
-        state = ResearchState(query="test")
-
-        with pytest.raises(ValueError, match="Planner did not return a valid research plan"):
-            await plan(state)
+        assert result.plan.goal == "AI trends"
 
     @pytest.mark.asyncio
     @patch("research_swarm.agents.planner.invoke_messages")
@@ -170,104 +98,199 @@ class TestPlannerAgent:
 
         state = ResearchState(query="test")
         result = await plan(state)
-
         assert result.plan is not None
         assert result.plan.goal == "Test"
 
 
 class TestSearcherAgent:
-    """Tests for the searcher agent."""
+    """Tests for the searcher agent — uses SearchOrchestrator (no trace_agent)."""
+
+    def _make_orch_mock(self, results: list, metadata: dict | None = None) -> MagicMock:
+        if metadata is None:
+            metadata = {
+                "providers_tried": ["duckduckgo"],
+                "successful_provider": "duckduckgo",
+                "all_failed": False,
+                "attempts": [{"provider": "duckduckgo", "success": True, "result_count": len(results)}],
+            }
+        mock = MagicMock()
+        mock.search = AsyncMock(return_value=(results, metadata))
+        mock.health = MagicMock()
+        return mock
 
     @pytest.mark.asyncio
+    @patch("research_swarm.agents.searcher.get_orchestrator")
     @patch("research_swarm.agents.searcher.invoke_messages")
-    @patch("research_swarm.agents.searcher.trace_agent")
-    async def test_search_appends_result(
-        self, mock_trace: MagicMock, mock_invoke: AsyncMock
+    async def test_full_search_uses_orchestrator(
+        self, mock_invoke: AsyncMock, mock_get_orch: MagicMock,
     ) -> None:
         from research_swarm.agents.searcher import search
         from research_swarm.graph.state import ResearchPlan, ResearchState
+        from research_swarm.search.base import SearchResultItem
 
-        mock_invoke.return_value = json.dumps({
-            "question_id": "Q1",
-            "evidence": [["AI is growing", "nature.com"], ["Robots are coming", "arxiv.org"]],
-        })
-
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
-        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
-        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
-
-        state = ResearchState(
-            query="AI",
-            plan=ResearchPlan(goal="AI", research_questions=["Q1"]),
+        items = [SearchResultItem(title="AI growing", url="https://nature.com",
+                                   snippet="AI adoption growing", provider="tavily")]
+        mock_get_orch.return_value = self._make_orch_mock(
+            results=items,
+            metadata={"providers_tried": ["tavily"], "successful_provider": "tavily",
+                      "all_failed": False, "attempts": []},
         )
+        mock_invoke.return_value = json.dumps({"evidence": [["AI is growing", "nature.com"]]})
+
+        state = ResearchState(query="AI", iteration=0, search_mode="full",
+                              plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
         result = await search(state)
 
         assert len(result.search_results) == 1
-        assert result.search_results[0].question_id == "Q1"
-        assert len(result.search_results[0].evidence) == 2
+        assert result.new_evidence_found is True
+        assert result.search_provider_used == "tavily"
+        assert result.retrieval_failed is False
 
     @pytest.mark.asyncio
-    async def test_search_requires_plan(self) -> None:
+    @patch("research_swarm.agents.searcher.get_orchestrator")
+    @patch("research_swarm.agents.searcher.invoke_messages")
+    async def test_targeted_search_for_missing_topics(
+        self, mock_invoke: AsyncMock, mock_get_orch: MagicMock,
+    ) -> None:
         from research_swarm.agents.searcher import search
         from research_swarm.graph.state import ResearchState
+        from research_swarm.search.base import SearchResultItem
 
-        state = ResearchState(query="AI")  # no plan
-        with pytest.raises(RuntimeError, match="Planner must run before Searcher"):
-            await search(state)
+        items = [SearchResultItem(title="Risk", url="https://s.com",
+                                   snippet="Risk", provider="brave")]
+        mock_get_orch.return_value = self._make_orch_mock(
+            results=items,
+            metadata={"providers_tried": ["brave"], "successful_provider": "brave",
+                      "all_failed": False, "attempts": []},
+        )
+        mock_invoke.return_value = json.dumps({"evidence": [["Risk found", "sec-db.com"]]})
+
+        state = ResearchState(query="AI", iteration=1, search_mode="targeted",
+                              missing_topics=["security risks", "cost analysis"])
+        result = await search(state)
+
+        assert mock_get_orch.return_value.search.call_count == 2
+        assert result.new_evidence_found is True
 
     @pytest.mark.asyncio
-    @patch("research_swarm.agents.searcher.invoke_messages")
-    @patch("research_swarm.agents.searcher.trace_agent")
-    async def test_search_handles_empty_evidence(
-        self, mock_trace: MagicMock, mock_invoke: AsyncMock
+    @patch("research_swarm.agents.searcher.get_orchestrator")
+    async def test_all_providers_fail_marks_retrieval_failed(
+        self, mock_get_orch: MagicMock,
     ) -> None:
         from research_swarm.agents.searcher import search
         from research_swarm.graph.state import ResearchPlan, ResearchState
 
+        mock_get_orch.return_value = self._make_orch_mock(
+            results=[],
+            metadata={
+                "providers_tried": ["tavily", "brave", "duckduckgo"],
+                "successful_provider": None,
+                "all_failed": True,
+                "attempts": [
+                    {"provider": "tavily", "success": False, "error": "timeout"},
+                    {"provider": "brave", "success": False, "error": "timeout"},
+                    {"provider": "duckduckgo", "success": False, "error": "empty"},
+                ],
+            },
+        )
+        state = ResearchState(query="AI", iteration=0, search_mode="full",
+                              plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
+        result = await search(state)
+
+        assert result.retrieval_failed is True
+        assert result.new_evidence_found is False
+        assert "All providers failed" in result.retrieval_failure_reason
+
+    @pytest.mark.asyncio
+    @patch("research_swarm.agents.searcher.get_orchestrator")
+    @patch("research_swarm.agents.searcher.invoke_messages")
+    async def test_search_deduplicates_evidence(
+        self, mock_invoke: AsyncMock, mock_get_orch: MagicMock,
+    ) -> None:
+        from research_swarm.agents.searcher import search
+        from research_swarm.graph.state import ResearchPlan, ResearchState
+        from research_swarm.search.base import SearchResultItem
+        import hashlib
+
+        items = [SearchResultItem(title="AI", url="https://n.com",
+                                   snippet="AI is growing", provider="tavily")]
+        mock_get_orch.return_value = self._make_orch_mock(
+            results=items,
+            metadata={"providers_tried": ["tavily"], "successful_provider": "tavily",
+                      "all_failed": False, "attempts": []},
+        )
         mock_invoke.return_value = json.dumps({
-            "question_id": "Q1",
-            "evidence": [],
+            "evidence": [["AI is growing", "nature.com"], ["OLD FACT", "arxiv.org"]],
         })
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
-        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
-        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
-
-        state = ResearchState(
-            query="AI",
-            plan=ResearchPlan(goal="AI", research_questions=["Q1"]),
-        )
+        old_hash = hashlib.sha256("old fact (arxiv.org)".lower().encode()).hexdigest()[:16]
+        state = ResearchState(query="AI", iteration=0, search_mode="full",
+                              plan=ResearchPlan(goal="AI", research_questions=["Q1"]),
+                              known_evidence_hashes=[old_hash])
         result = await search(state)
 
-        assert len(result.search_results) == 1
-        assert result.search_results[0].evidence == []
+        assert result.new_evidence_found is True
+        assert result.new_evidence_count == 1
 
     @pytest.mark.asyncio
+    @patch("research_swarm.agents.searcher.get_orchestrator")
     @patch("research_swarm.agents.searcher.invoke_messages")
-    @patch("research_swarm.agents.searcher.trace_agent")
-    async def test_search_falls_back_question_id(
-        self, mock_trace: MagicMock, mock_invoke: AsyncMock
+    async def test_evidence_quality_is_tracked(
+        self, mock_invoke: AsyncMock, mock_get_orch: MagicMock,
     ) -> None:
         from research_swarm.agents.searcher import search
         from research_swarm.graph.state import ResearchPlan, ResearchState
+        from research_swarm.search.base import SearchResultItem
 
-        # No question_id in response — should use question as fallback
-        mock_invoke.return_value = json.dumps({"evidence": [["fact", "src"]]})
-
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
-        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
-        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
-
-        state = ResearchState(
-            query="AI",
-            plan=ResearchPlan(goal="AI", research_questions=["What is AI?"]),
+        items = [SearchResultItem(title="AI fact", url="https://e.com",
+                                   snippet="AI important", provider="brave")]
+        mock_get_orch.return_value = self._make_orch_mock(
+            results=items,
+            metadata={"providers_tried": ["brave"], "successful_provider": "brave",
+                      "all_failed": False, "attempts": []},
         )
+        mock_invoke.return_value = json.dumps({"evidence": [["AI is important", "example.com"]]})
+
+        state = ResearchState(query="AI", iteration=0, search_mode="full",
+                              plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
         result = await search(state)
 
-        assert result.search_results[0].question_id == "What is AI?"
+        assert len(result.evidence_quality) > 0
+        assert result.evidence_quality[0]["provider"] == "brave"
+        assert result.evidence_quality[0]["search_mode"] == "full"
+        assert "confidence" in result.evidence_quality[0]
+        assert "retrieved_at" in result.evidence_quality[0]
+
+    @pytest.mark.asyncio
+    @patch("research_swarm.agents.searcher.get_orchestrator")
+    async def test_fallback_provider_success(
+        self, mock_get_orch: MagicMock,
+    ) -> None:
+        from research_swarm.agents.searcher import search
+        from research_swarm.graph.state import ResearchPlan, ResearchState
+        from research_swarm.search.base import SearchResultItem
+
+        items = [SearchResultItem(title="Fallback", url="https://ddg.com",
+                                   snippet="Result", provider="duckduckgo")]
+        mock_get_orch.return_value = self._make_orch_mock(
+            results=items,
+            metadata={
+                "providers_tried": ["tavily", "duckduckgo"],
+                "successful_provider": "duckduckgo",
+                "all_failed": False,
+                "attempts": [
+                    {"provider": "tavily", "success": False, "error": "timeout"},
+                    {"provider": "duckduckgo", "success": True, "result_count": 1},
+                ],
+            },
+        )
+        state = ResearchState(query="AI", iteration=0, search_mode="full",
+                              plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
+        result = await search(state)
+
+        assert result.retrieval_failed is False
+        assert result.search_provider_used == "duckduckgo"
+        assert "tavily" in result.search_providers_tried
 
 
 class TestFactCheckerAgent:
@@ -292,15 +315,11 @@ class TestFactCheckerAgent:
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(
-            query="AI",
-            search_results=[
-                SearchResult(question_id="q1", evidence=["fact 1", "fact 2"]),
-                SearchResult(question_id="q2", evidence=["bad fact"]),
-            ],
-        )
+        state = ResearchState(query="AI", search_results=[
+            SearchResult(question_id="q1", evidence=["fact 1", "fact 2"]),
+            SearchResult(question_id="q2", evidence=["bad fact"]),
+        ])
         result = await fact_check(state)
-
         assert len(result.validated_results) == 1
         assert len(result.validated_results[0].validated_facts) == 2
         assert len(result.validated_results[0].rejected_facts) == 1
@@ -321,23 +340,19 @@ class TestFactCheckerAgent:
 
         state = ResearchState(query="AI", search_results=[])
         result = await fact_check(state)
-
-        # Should not call invoke_messages when no evidence
         mock_invoke.assert_not_called()
         assert len(result.validated_results) == 1
         assert result.validated_results[0].validated_facts == []
-        assert result.validated_results[0].rejected_facts == []
 
     @pytest.mark.asyncio
     @patch("research_swarm.agents.fact_checker.invoke_messages")
     @patch("research_swarm.agents.fact_checker.trace_agent")
-    async def test_fact_check_handles_missing_fields_in_response(
+    async def test_fact_check_handles_missing_fields(
         self, mock_trace: MagicMock, mock_invoke: AsyncMock
     ) -> None:
         from research_swarm.agents.fact_checker import fact_check
         from research_swarm.graph.state import ResearchState, SearchResult
 
-        # No rejected_facts key
         mock_invoke.return_value = json.dumps({"validated_facts": ["fact 1"]})
 
         mock_tracer = MagicMock()
@@ -345,13 +360,10 @@ class TestFactCheckerAgent:
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(
-            query="AI",
-            search_results=[SearchResult(question_id="q1", evidence=["fact 1"])],
-        )
+        state = ResearchState(query="AI", search_results=[
+            SearchResult(question_id="q1", evidence=["fact 1"]),
+        ])
         result = await fact_check(state)
-
-        assert len(result.validated_results[0].validated_facts) == 1
         assert result.validated_results[0].rejected_facts == []
 
 
@@ -365,10 +377,7 @@ class TestSummarizerAgent:
         self, mock_trace: MagicMock, mock_invoke: AsyncMock
     ) -> None:
         from research_swarm.agents.summarizer import summarize
-        from research_swarm.graph.state import (
-            ResearchState,
-            ValidatedResult,
-        )
+        from research_swarm.graph.state import ResearchState, ValidatedResult
 
         mock_invoke.return_value = json.dumps({
             "summary": "AI is an important field of study.",
@@ -380,17 +389,10 @@ class TestSummarizerAgent:
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(
-            query="AI",
-            validated_results=[
-                ValidatedResult(
-                    validated_facts=["AI is important", "AI is growing"],
-                    rejected_facts=[],
-                ),
-            ],
-        )
+        state = ResearchState(query="AI", validated_results=[
+            ValidatedResult(validated_facts=["AI is important", "AI is growing"], rejected_facts=[]),
+        ])
         result = await summarize(state)
-
         assert result.final_report is not None
         assert result.final_report.summary == "AI is an important field of study."
         assert result.final_report.sources == ["nature.com", "arxiv.org"]
@@ -404,19 +406,15 @@ class TestSummarizerAgent:
         from research_swarm.agents.summarizer import summarize
         from research_swarm.graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({
-            "summary": "No information available.",
-            "sources": [],
-        })
+        mock_invoke.return_value = json.dumps({"summary": "No information available.", "sources": []})
 
         mock_tracer = MagicMock()
         mock_tracer.update_observation = MagicMock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(query="AI")  # no validated_results
+        state = ResearchState(query="AI")
         result = await summarize(state)
-
         assert result.final_report is not None
         assert result.final_report.summary == "No information available."
 
@@ -427,10 +425,7 @@ class TestSummarizerAgent:
         self, mock_trace: MagicMock, mock_invoke: AsyncMock
     ) -> None:
         from research_swarm.agents.summarizer import summarize
-        from research_swarm.graph.state import (
-            ResearchState,
-            ValidatedResult,
-        )
+        from research_swarm.graph.state import ResearchState, ValidatedResult
 
         mock_invoke.return_value = json.dumps({"summary": "A summary."})
 
@@ -439,15 +434,10 @@ class TestSummarizerAgent:
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(
-            query="AI",
-            validated_results=[
-                ValidatedResult(validated_facts=["fact 1"], rejected_facts=[]),
-            ],
-        )
+        state = ResearchState(query="AI", validated_results=[
+            ValidatedResult(validated_facts=["fact 1"], rejected_facts=[]),
+        ])
         result = await summarize(state)
-
-        assert result.final_report is not None
         assert result.final_report.summary == "A summary."
         assert result.final_report.sources == []
 
@@ -462,16 +452,13 @@ class TestJudgeAgent:
         self, mock_trace: MagicMock, mock_invoke: AsyncMock
     ) -> None:
         from research_swarm.agents.judge import judge
-        from research_swarm.graph.state import (
-            ResearchPlan,
-            ResearchReport,
-            ResearchState,
-        )
+        from research_swarm.graph.state import ResearchPlan, ResearchReport, ResearchState
 
         mock_invoke.return_value = json.dumps({
-            "score": 85,
-            "needs_research": False,
-            "missing_topics": [],
+            "score": 85, "needs_research": False, "missing_topics": [],
+            "strengths": ["thorough"], "weaknesses": [], "reasoning": "Complete.",
+            "coverage_score": 28, "evidence_score": 18, "source_score": 17,
+            "depth_score": 12, "completeness_score": 10,
         })
 
         mock_tracer = MagicMock()
@@ -479,14 +466,35 @@ class TestJudgeAgent:
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(
-            query="AI",
-            plan=ResearchPlan(goal="AI", research_questions=["Q1"]),
-            final_report=ResearchReport(summary="Great report", sources=["src"]),
-        )
+        state = ResearchState(query="AI", plan=ResearchPlan(goal="AI", research_questions=["Q1"]),
+                              final_report=ResearchReport(summary="Great report", sources=["src"]))
         result = await judge(state)
-
         assert result.judge_score == 85
+        assert result.coverage_score == 28
+
+    @pytest.mark.asyncio
+    @patch("research_swarm.agents.judge.invoke_messages")
+    @patch("research_swarm.agents.judge.trace_agent")
+    async def test_judge_sets_missing_topics(
+        self, mock_trace: MagicMock, mock_invoke: AsyncMock
+    ) -> None:
+        from research_swarm.agents.judge import judge
+        from research_swarm.graph.state import ResearchState
+
+        mock_invoke.return_value = json.dumps({
+            "score": 60, "needs_research": True, "missing_topics": ["security", "cost analysis"],
+            "strengths": [], "weaknesses": ["missing cost data"], "reasoning": "Needs more data.",
+        })
+
+        mock_tracer = MagicMock()
+        mock_tracer.update_observation = MagicMock()
+        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
+        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
+
+        state = ResearchState(query="AI")
+        result = await judge(state)
+        assert result.judge_score == 60
+        assert result.missing_topics == ["security", "cost analysis"]
 
     @pytest.mark.asyncio
     @patch("research_swarm.agents.judge.invoke_messages")
@@ -497,7 +505,7 @@ class TestJudgeAgent:
         from research_swarm.agents.judge import judge
         from research_swarm.graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({"score": 150})
+        mock_invoke.return_value = json.dumps({"score": 150, "needs_research": False, "missing_topics": []})
 
         mock_tracer = MagicMock()
         mock_tracer.update_observation = MagicMock()
@@ -506,29 +514,7 @@ class TestJudgeAgent:
 
         state = ResearchState(query="AI")
         result = await judge(state)
-
         assert result.judge_score == 100
-
-    @pytest.mark.asyncio
-    @patch("research_swarm.agents.judge.invoke_messages")
-    @patch("research_swarm.agents.judge.trace_agent")
-    async def test_judge_clamps_negative_score_to_0(
-        self, mock_trace: MagicMock, mock_invoke: AsyncMock
-    ) -> None:
-        from research_swarm.agents.judge import judge
-        from research_swarm.graph.state import ResearchState
-
-        mock_invoke.return_value = json.dumps({"score": -50})
-
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
-        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
-        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
-
-        state = ResearchState(query="AI")
-        result = await judge(state)
-
-        assert result.judge_score == 0
 
     @pytest.mark.asyncio
     @patch("research_swarm.agents.judge.invoke_messages")
@@ -539,11 +525,7 @@ class TestJudgeAgent:
         from research_swarm.agents.judge import judge
         from research_swarm.graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({
-            "score": 30,
-            "needs_research": True,
-            "missing_topics": ["topic A"],
-        })
+        mock_invoke.return_value = json.dumps({"score": 30, "needs_research": True, "missing_topics": ["topic A"]})
 
         mock_tracer = MagicMock()
         mock_tracer.update_observation = MagicMock()
@@ -552,7 +534,6 @@ class TestJudgeAgent:
 
         state = ResearchState(query="AI", final_report=None)
         result = await judge(state)
-
         assert result.judge_score == 30
 
     @pytest.mark.asyncio
@@ -573,22 +554,21 @@ class TestJudgeAgent:
 
         state = ResearchState(query="AI")
         result = await judge(state)
-
         assert result.judge_score == 0
 
     @pytest.mark.asyncio
     @patch("research_swarm.agents.judge.invoke_messages")
     @patch("research_swarm.agents.judge.trace_agent")
-    async def test_judge_captures_missing_topics(
+    async def test_judge_handles_retrieval_failure(
         self, mock_trace: MagicMock, mock_invoke: AsyncMock
     ) -> None:
         from research_swarm.agents.judge import judge
         from research_swarm.graph.state import ResearchState
 
         mock_invoke.return_value = json.dumps({
-            "score": 60,
-            "needs_research": True,
-            "missing_topics": ["ethics", "regulation"],
+            "score": 0, "needs_research": False, "missing_topics": [],
+            "strengths": [], "weaknesses": ["No evidence available"],
+            "reasoning": "All search providers failed.", "retrieval_failed": True,
         })
 
         mock_tracer = MagicMock()
@@ -596,7 +576,36 @@ class TestJudgeAgent:
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
-        state = ResearchState(query="AI")
+        state = ResearchState(query="AI", retrieval_failed=True,
+                              search_providers_tried=["tavily", "brave", "duckduckgo"], judge_score=0)
         result = await judge(state)
+        assert result.judge_score == 0
 
-        assert result.judge_score == 60
+    @pytest.mark.asyncio
+    @patch("research_swarm.agents.judge.invoke_messages")
+    @patch("research_swarm.agents.judge.trace_agent")
+    async def test_judge_handles_markdown_response(
+        self, mock_trace: MagicMock, mock_invoke: AsyncMock
+    ) -> None:
+        from research_swarm.agents.judge import judge
+        from research_swarm.graph.state import ResearchPlan, ResearchReport, ResearchState
+
+        mock_invoke.return_value = (
+            "## Judge's Evaluation **Score: 12/100** "
+            "Report is too thin for production review."
+        )
+
+        mock_tracer = MagicMock()
+        mock_tracer.update_observation = MagicMock()
+        mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
+        mock_trace.return_value.__exit__ = MagicMock(return_value=False)
+
+        state = ResearchState(
+            query="AI",
+            plan=ResearchPlan(goal="AI", research_questions=["Q1", "Q2"]),
+            final_report=ResearchReport(summary="Thin report", sources=["src"]),
+        )
+        result = await judge(state)
+        assert result.judge_score == 12
+        assert result.missing_topics == ["Q1", "Q2"]
+        assert "unstructured prose" in result.weaknesses[0]

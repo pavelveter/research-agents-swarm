@@ -1,0 +1,32 @@
+{
+  "timestamp": 1781192488291,
+  "query": "q1",
+  "provider": "all",
+  "metadata": {
+    "query": "q1",
+    "original_query": "Q1",
+    "all_failed": true,
+    "providers_tried": [
+      "tavily",
+      "brave",
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "tavily",
+        "success": false,
+        "error": "timeout"
+      },
+      {
+        "provider": "brave",
+        "success": false,
+        "error": "timeout"
+      },
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "error": "empty"
+      }
+    ]
+  }
+}

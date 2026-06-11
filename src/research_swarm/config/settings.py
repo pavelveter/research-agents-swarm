@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     mcp_host: str = Field(default="127.0.0.1", alias="MCP_HOST")
     mcp_port: int = Field(default=8765, alias="MCP_PORT")
 
+    # Search provider configuration
+    tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")
+    brave_api_key: str = Field(default="", alias="BRAVE_API_KEY")
+    serpapi_api_key: str = Field(default="", alias="SERPAPI_API_KEY")
+    searxng_base_url: str = Field(default="", alias="SEARXNG_BASE_URL")
+
     @property
     def llm_api_key(self) -> str:
         if not self.openai_api_key:

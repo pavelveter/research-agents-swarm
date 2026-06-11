@@ -192,19 +192,34 @@ class TestJudgeResult:
         assert jr.needs_research is True
         assert len(jr.missing_topics) == 2
 
-    def test_all_fields_required(self) -> None:
-        """All JudgeResult fields are required (no defaults)."""
-        with pytest.raises(ValidationError):
-            JudgeResult(score=50)  # type: ignore[arg-type]
-
-    def test_accepts_any_score_value(self) -> None:
+    def test_does_not_validate_score_range(self) -> None:
         """Pydantic won't reject out-of-range by default without constraints."""
         jr = JudgeResult(score=150, needs_research=False, missing_topics=[])
         assert jr.score == 150
 
-    def test_accepts_zero_score(self) -> None:
+    def test_score_zero(self) -> None:
         jr = JudgeResult(score=0, needs_research=False, missing_topics=[])
         assert jr.score == 0
+
+    def test_all_fields_defaulted_except_score_needs_research_missing_topics(self) -> None:
+        """strengths, weaknesses, reasoning have defaults."""
+        jr = JudgeResult(score=50, needs_research=True, missing_topics=["t"])
+        assert jr.strengths == []
+        assert jr.weaknesses == []
+        assert jr.reasoning == ""
+
+    def test_full_judge_result(self) -> None:
+        jr = JudgeResult(
+            score=85,
+            needs_research=False,
+            missing_topics=[],
+            strengths=["thorough", "well-sourced"],
+            weaknesses=["lacks cost analysis"],
+            reasoning="Report is comprehensive but missing financial details.",
+        )
+        assert jr.strengths == ["thorough", "well-sourced"]
+        assert jr.weaknesses == ["lacks cost analysis"]
+        assert jr.reasoning == "Report is comprehensive but missing financial details."
 
     def test_serialization_roundtrip(self) -> None:
         jr = JudgeResult(score=85, needs_research=True, missing_topics=["t1"])
@@ -228,6 +243,24 @@ class TestResearchState:
         assert state.validated_results == []
         assert state.final_report is None
         assert state.judge_score == 0
+        assert state.iteration == 0
+        assert state.max_iterations == 3
+        assert state.previous_score is None
+        assert state.score_delta is None
+        assert state.missing_topics == []
+        assert state.no_progress is False
+        assert state.stop_reason == ""
+        assert state.new_evidence_found is True
+        assert state.new_evidence_count == 0
+        assert state.known_evidence_hashes == []
+        assert state.coverage_score == 0
+        assert state.evidence_score == 0
+        assert state.source_score == 0
+        assert state.depth_score == 0
+        assert state.completeness_score == 0
+        assert state.strengths == []
+        assert state.weaknesses == []
+        assert state.reasoning == ""
 
     def test_full_creation(self) -> None:
         plan = ResearchPlan(goal="AI", research_questions=["Q1"])
@@ -241,6 +274,24 @@ class TestResearchState:
             validated_results=[vr],
             final_report=report,
             judge_score=85,
+            iteration=2,
+            max_iterations=5,
+            previous_score=70,
+            score_delta=15,
+            missing_topics=["ethics", "cost"],
+            no_progress=False,
+            stop_reason="score_threshold_met",
+            new_evidence_found=True,
+            new_evidence_count=3,
+            known_evidence_hashes=["abc123", "def456"],
+            coverage_score=25,
+            evidence_score=18,
+            source_score=17,
+            depth_score=12,
+            completeness_score=11,
+            strengths=["thorough"],
+            weaknesses=["lacks cost"],
+            reasoning="Good report.",
         )
         assert state.plan is not None
         assert state.plan.goal == "AI"
@@ -249,6 +300,14 @@ class TestResearchState:
         assert state.final_report is not None
         assert state.final_report.summary == "AI is great."
         assert state.judge_score == 85
+        assert state.iteration == 2
+        assert state.max_iterations == 5
+        assert state.previous_score == 70
+        assert state.score_delta == 15
+        assert state.missing_topics == ["ethics", "cost"]
+        assert state.no_progress is False
+        assert state.stop_reason == "score_threshold_met"
+        assert state.new_evidence_found is True
 
     def test_requires_query(self) -> None:
         with pytest.raises(ValidationError):
@@ -287,6 +346,24 @@ class TestResearchState:
         assert data["validated_results"] == []
         assert data["final_report"] is None
         assert data["judge_score"] == 0
+        assert data["iteration"] == 0
+        assert data["max_iterations"] == 3
+        assert data["previous_score"] is None
+        assert data["score_delta"] is None
+        assert data["missing_topics"] == []
+        assert data["no_progress"] is False
+        assert data["stop_reason"] == ""
+        assert data["new_evidence_found"] is True
+        assert data["new_evidence_count"] == 0
+        assert data["known_evidence_hashes"] == []
+        assert data["coverage_score"] == 0
+        assert data["evidence_score"] == 0
+        assert data["source_score"] == 0
+        assert data["depth_score"] == 0
+        assert data["completeness_score"] == 0
+        assert data["strengths"] == []
+        assert data["weaknesses"] == []
+        assert data["reasoning"] == ""
 
     def test_model_dump_with_populated_fields(self) -> None:
         plan = ResearchPlan(goal="AI", research_questions=["Q1"])

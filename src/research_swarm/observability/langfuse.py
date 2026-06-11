@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from research_swarm.config.settings import get_settings
+from research_swarm.graph.state import ResearchState
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,19 @@ def _configure_langfuse() -> None:
 
 
 _configure_langfuse()
+
+
+def shutdown_observability() -> None:
+    "Flush and close Langfuse background workers before process exit."
+    client = getattr(_configure_langfuse, "_client", None)
+    if client is None:
+        return
+    try:
+        client.shutdown()
+    except Exception:
+        logger.debug("Langfuse shutdown failed", exc_info=True)
+    finally:
+        _configure_langfuse._client = None
 
 
 class _LangfuseTracer:
@@ -74,3 +88,46 @@ def trace_agent(agent_name: str, input_data: dict[str, Any]) -> Iterator[Any]:
 
     with observation as span:
         yield _LangfuseTracer(span)
+
+
+@contextmanager
+def trace_routing_decision(
+    routing_name: str, state: ResearchState
+) -> Iterator[Any]:
+    """Context manager providing Langfuse tracing for routing decisions."""
+    client = getattr(_configure_langfuse, "_client", None)
+    if client is None:
+        yield _NoopTracer()
+        return
+    try:
+        observation = client.start_as_current_observation(
+            name=routing_name,
+            as_type="chain",
+            input={
+                "iteration": state.iteration,
+                "score": state.judge_score,
+                "score_delta": state.score_delta,
+                "missing_topics": state.missing_topics,
+                "max_iterations": state.max_iterations,
+                "new_evidence_found": state.new_evidence_found,
+            },
+            metadata={"routing_name": routing_name},
+        )
+    except Exception:
+        logger.debug(
+            "Langfuse tracing is not active for %s", routing_name, exc_info=True
+        )
+        yield _NoopTracer()
+        return
+
+    with observation as span:
+        tracer = _LangfuseTracer(span)
+        yield tracer
+        tracer.update_observation(
+            output={
+                "stop_reason": state.stop_reason,
+                "score": state.judge_score,
+                "delta": state.score_delta,
+                "iteration": state.iteration,
+            }
+        )

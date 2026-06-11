@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from research_swarm.graph.schemas import (
+from research_swarm.graph.state import (
     JudgeResult,
     ResearchPlan,
     ResearchReport,
@@ -54,9 +54,21 @@ class TestSchemataModels:
     def test_judge_result_serialization(self) -> None:
         jr = JudgeResult(score=90, needs_research=False, missing_topics=[])
         data = jr.model_dump()
-        assert data == {"score": 90, "needs_research": False, "missing_topics": []}
+        assert data["score"] == 90
+        assert data["needs_research"] is False
+        assert data["missing_topics"] == []
+        assert data["strengths"] == []
+        assert data["weaknesses"] == []
+        assert data["reasoning"] == ""
 
     def test_judge_result_all_fields_required(self) -> None:
-        """JudgeResult in schemas.py also requires all fields."""
+        """JudgeResult in schemas.py requires score, needs_research, missing_topics."""
         with pytest.raises(Exception):
             JudgeResult(score=50)  # type: ignore[arg-type]
+
+    def test_judge_result_optional_fields_default(self) -> None:
+        """strengths, weaknesses, reasoning have empty defaults."""
+        jr = JudgeResult(score=50, needs_research=True, missing_topics=["t"])
+        assert jr.strengths == []
+        assert jr.weaknesses == []
+        assert jr.reasoning == ""

@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781192675510,
+  "query": "ai coding assistants new capabilities github copilot cursor codeium",
+  "provider": "all",
+  "metadata": {
+    "query": "ai coding assistants new capabilities github copilot cursor codeium",
+    "original_query": "What new capabilities have been introduced in leading AI coding assistants (e.g., GitHub Copilot, Cursor, Codeium) in the past year?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "result_count": 0,
+          "latency_s": 1.0688430830050493
+        }
+      }
+    ]
+  }
+}

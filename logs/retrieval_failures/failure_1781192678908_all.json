@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781192678908,
+  "query": "developers adopting integrating ai coding assistants workflows",
+  "provider": "all",
+  "metadata": {
+    "query": "developers adopting integrating ai coding assistants workflows",
+    "original_query": "How are developers adopting and integrating AI coding assistants into their workflows?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "result_count": 0,
+          "latency_s": 0.9843455829977756
+        }
+      }
+    ]
+  }
+}

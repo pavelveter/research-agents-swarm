@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781192685048,
+  "query": "developer productivity code quality measurable impacts reported",
+  "provider": "all",
+  "metadata": {
+    "query": "developer productivity code quality measurable impacts reported",
+    "original_query": "What measurable impacts on developer productivity and code quality have been reported?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.36820429099316243
+        }
+      }
+    ]
+  }
+}

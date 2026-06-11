@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781193167127,
+  "query": "ai coding assistants market share 2024 2025",
+  "provider": "all",
+  "metadata": {
+    "query": "ai coding assistants market share 2024 2025",
+    "original_query": "What are the most popular AI coding assistants (e.g., GitHub Copilot, Cursor, Codeium) and how have their market shares changed in 2024-2025?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.4430441669974243
+        }
+      }
+    ]
+  }
+}

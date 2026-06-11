@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781193179152,
+  "query": "ai coding assistants limitations hallucination copyright concerns",
+  "provider": "all",
+  "metadata": {
+    "query": "ai coding assistants limitations hallucination copyright concerns",
+    "original_query": "What are the major limitations or concerns (e.g., hallucination, copyright issues) that are shaping the direction of AI coding assistants?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.36474008300865535
+        }
+      }
+    ]
+  }
+}

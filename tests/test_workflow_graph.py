@@ -25,10 +25,10 @@ class TestBuildWorkflow:
         assert hasattr(workflow, "astream")
 
     def test_graph_has_required_nodes(self) -> None:
-        """The graph should have all 5 agent nodes."""
+        """The graph should have all 6 nodes (5 agents + routing node)."""
         workflow = build_workflow()
         nodes = list(workflow.get_graph().nodes.keys())
-        expected_nodes = {"planner", "searcher", "fact_checker", "summarizer", "judge"}
+        expected_nodes = {"planner", "searcher", "fact_checker", "summarizer", "judge", "routing"}
         assert expected_nodes.issubset(set(nodes))
 
     def test_graph_entry_point_is_planner(self) -> None:
@@ -139,13 +139,16 @@ class TestMergeState:
         assert result.final_report is not None
         assert result.final_report.summary == "Final summary"
 
-    def test_merge_none_values_cause_validation_error(self) -> None:
-        """Passing None for int-typed field via dict update triggers ValidationError."""
-        current = ResearchState(query="test", judge_score=50)
-        event = {"judge": {"judge_score": None}}  # type: ignore[dict-item]
+    def test_merge_updates_new_fields(self) -> None:
+        """New fields like iteration, missing_topics merge correctly."""
+        current = ResearchState(query="test")
+        event = {"judge": {"iteration": 2, "missing_topics": ["security"], "judge_score": 70}}
 
-        with pytest.raises(Exception):
-            _merge_state(current, event)
+        result = _merge_state(current, event)
+
+        assert result.iteration == 2
+        assert result.missing_topics == ["security"]
+        assert result.judge_score == 70
 
     def test_merge_empty_event(self) -> None:
         """Empty event dict should not change state."""

@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781193173952,
+  "query": "agentic workflows command-line integration personalization new features paradigms",
+  "provider": "all",
+  "metadata": {
+    "query": "agentic workflows command-line integration personalization new features paradigms",
+    "original_query": "What new features or paradigms (e.g., agentic workflows, command-line integration, personalization) are gaining traction?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.36747724999440834
+        }
+      }
+    ]
+  }
+}

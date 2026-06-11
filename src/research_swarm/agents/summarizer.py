@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from research_swarm.graph.state import ResearchReport, ResearchState
 from research_swarm.llm.client import invoke_messages
 from research_swarm.logging_config import preview
 from research_swarm.observability.langfuse import trace_agent
-from research_swarm.graph.state import ResearchReport, ResearchState
+from research_swarm.utils import safe_json
 
 logger = logging.getLogger(__name__)
 
 SUMMARIZER_SYSTEM = (
-    "You are a research summarizer. Produce a concise summary using ONLY the "
-    "validated facts. Include inline citations like [1], [2] referencing the "
-    "provided sources. Return ONLY valid JSON: { \"summary\": \"...\", "
-    "\"sources\": [\"source string\"], \"validated_facts\": [\"fact\"] }."
+    "You are a hard-boiled Technical Core Report Compiler. Combine the validated facts into "
+    "a compressed engineering digest. \n"
+    "CRITICAL CRITERIA:\n"
+    "1. Do NOT mention what is missing, weak, or not provided. Never write phrases like 'No specific details are provided'.\n"
+    "2. If data on a topic doesn't exist in the validated facts, omit the topic entirely.\n"
+    "3. Focus exclusively on raw architecture, benchmarks, configuration flags, and explicit version upgrades.\n"
+    'Return ONLY valid JSON: { "summary": "...", "sources": ["..."] }'
 )
 
 
@@ -30,13 +32,13 @@ async def summarize(state: ResearchState) -> ResearchState:
         for vr in state.validated_results:
             facts.extend(vr.validated_facts)
         logger.info("Summarizing | validated_facts=%s", len(facts))
-        facts_block = "\n".join(f"- {f}" for f in facts[:40]) or "(no facts)"
+        facts_block = "\n".join(f"- {f}" for f in facts) or "(no facts)"
         messages = [
             SystemMessage(content=SUMMARIZER_SYSTEM),
             HumanMessage(content=f"Validated facts:\n{facts_block}"),
         ]
         raw = await invoke_messages(messages)
-        parsed = _safe_json(raw)
+        parsed = safe_json(raw)
         state.final_report = ResearchReport(
             summary=str(parsed.get("summary", "")),
             sources=[str(s) for s in parsed.get("sources", [])],
@@ -55,13 +57,3 @@ async def summarize(state: ResearchState) -> ResearchState:
                 }
             )
     return state
-
-
-def _safe_json(text: str) -> dict[str, Any]:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.lstrip("`")
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip("`\n ")
-    return json.loads(cleaned)

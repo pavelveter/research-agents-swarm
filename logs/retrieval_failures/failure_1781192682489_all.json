@@ -1,0 +1,24 @@
+{
+  "timestamp": 1781192682489,
+  "query": "coding assistants ai models differences gpt-4 claude specialized code models",
+  "provider": "all",
+  "metadata": {
+    "query": "coding assistants ai models differences gpt-4 claude specialized code models",
+    "original_query": "What are the key differences in the underlying AI models (e.g., GPT-4, Claude, specialized code models) used by different coding assistants?",
+    "all_failed": true,
+    "providers_tried": [
+      "duckduckgo"
+    ],
+    "attempts": [
+      {
+        "provider": "duckduckgo",
+        "success": false,
+        "result_count": 0,
+        "metadata": {
+          "http_status": 202,
+          "latency_s": 0.3671837500005495
+        }
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ from research_swarm.observability.langfuse import (
     _NoopTracer,
     _configure_langfuse,
     trace_agent,
+    trace_routing_decision,
 )
 
 
@@ -195,4 +196,96 @@ class TestTraceAgent:
         mock_configure._client = mock_client
 
         with trace_agent("test_agent", {"input": "test"}) as tracer:
+            assert isinstance(tracer, _NoopTracer)
+
+
+class TestTraceRoutingDecision:
+    """Tests for the trace_routing_decision context manager."""
+
+    def test_returns_noop_when_no_client(self) -> None:
+        """When no Langfuse client, should yield a _NoopTracer."""
+        from research_swarm.graph.state import ResearchState
+
+        state = ResearchState(query="test", judge_score=70, iteration=1)
+        with patch.object(_configure_langfuse, "_client", None, create=True):
+            with trace_routing_decision("routing", state) as tracer:
+                assert isinstance(tracer, _NoopTracer)
+
+    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    def test_returns_langfuse_tracer_when_available(
+        self, mock_configure: MagicMock
+    ) -> None:
+        """When client is available, should yield a _LangfuseTracer."""
+        from research_swarm.graph.state import ResearchState
+
+        mock_client = MagicMock()
+        mock_span = MagicMock()
+        mock_observation = MagicMock()
+        mock_observation.__enter__ = MagicMock(return_value=mock_span)
+        mock_observation.__exit__ = MagicMock(return_value=False)
+        mock_client.start_as_current_observation.return_value = mock_observation
+
+        mock_configure._client = mock_client
+
+        state = ResearchState(query="test", judge_score=70, iteration=1)
+        with trace_routing_decision("routing", state) as tracer:
+            assert isinstance(tracer, _LangfuseTracer)
+            assert tracer._span is mock_span
+
+    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    def test_passes_routing_metadata_to_observation(
+        self, mock_configure: MagicMock
+    ) -> None:
+        """Should create observation with routing-specific metadata."""
+        from research_swarm.graph.state import ResearchState
+
+        mock_client = MagicMock()
+        mock_span = MagicMock()
+        mock_observation = MagicMock()
+        mock_observation.__enter__ = MagicMock(return_value=mock_span)
+        mock_observation.__exit__ = MagicMock(return_value=False)
+        mock_client.start_as_current_observation.return_value = mock_observation
+
+        mock_configure._client = mock_client
+
+        state = ResearchState(
+            query="test",
+            judge_score=70,
+            iteration=2,
+            score_delta=5,
+            missing_topics=["security"],
+            max_iterations=3,
+            new_evidence_found=True,
+        )
+        with trace_routing_decision("routing_decision", state):
+            pass
+
+        mock_client.start_as_current_observation.assert_called_once_with(
+            name="routing_decision",
+            as_type="chain",
+            input={
+                "iteration": 2,
+                "score": 70,
+                "score_delta": 5,
+                "missing_topics": ["security"],
+                "max_iterations": 3,
+                "new_evidence_found": True,
+            },
+            metadata={"routing_name": "routing_decision"},
+        )
+
+    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    def test_handles_observation_start_failure(
+        self, mock_configure: MagicMock
+    ) -> None:
+        """If start_as_current_observation raises, should fall back to noop."""
+        from research_swarm.graph.state import ResearchState
+
+        mock_client = MagicMock()
+        mock_client.start_as_current_observation.side_effect = Exception("Langfuse error")
+
+        mock_configure._client = mock_client
+
+        state = ResearchState(query="test", judge_score=70, iteration=1)
+        with trace_routing_decision("routing", state) as tracer:
             assert isinstance(tracer, _NoopTracer)
