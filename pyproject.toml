@@ -1,0 +1,37 @@
+[project]
+name = "research-swarm"
+version = "0.1.0"
+description = "Multi-agent research system using LangGraph, MCP, Langfuse and OpenAI-compatible LLM APIs"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langfuse>=2.0",
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+    "openai>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_swarm"]
+
+[tool.pyright]
+extraPaths = ["src"]
+pythonVersion = "3.12"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]

@@ -1,0 +1,65 @@
+# ==========================================
+# Cursor / VS Code
+# ==========================================
+.cursor/
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+*.code-workspace
+
+# ==========================================
+# Python (Byte-compiled / optimize / venv)
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Poetry / Pipenv / Hatch
+.pointer
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pdm/
+.hatch/
+.ipynb_checkpoints/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Distribution / Packaging
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==========================================
+# OS / System Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
