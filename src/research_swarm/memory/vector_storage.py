@@ -65,7 +65,7 @@ class SwarmMemoryBank:
         """Batch embed documents via native sequential local execution."""
         return [await self._embed_string(text) for text in texts]
 
-    async def upsert_facts(self, facts: list[str], iteration: int, task: str) -> int:
+    async def upsert_facts(self, facts: list[str], iteration: int, task: str, threshold: float = 0.92) -> int:
         """Embed and store unique facts, executing strict semantic deduplication."""
         if not facts:
             return 0
@@ -77,7 +77,7 @@ class SwarmMemoryBank:
         new_facts_count = 0
 
         for fact, vector in zip(facts, vectors):
-            if await self._is_semantic_duplicate(vector, threshold=0.92):
+            if await self._is_semantic_duplicate(vector, threshold=threshold):
                 logger.debug("Skipping semantic duplicate fact: %s", fact[:60])
                 continue
 

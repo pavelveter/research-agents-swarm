@@ -64,13 +64,11 @@ async def judge(state: ResearchState) -> ResearchState:
         now = datetime.date.today()
         current_context_time = now.strftime("%B %Y")
         current_year = now.year
-        cutoff_year = current_year - 2
 
         # Fully dynamic prompt without hardcoded specific models
         judge_system_prompt = render_prompt(
             "judge_judge_system_prompt.jinja",
             current_context_time=current_context_time,
-            cutoff_year=cutoff_year,
             current_year=current_year,
         )
 
@@ -120,7 +118,7 @@ async def judge(state: ResearchState) -> ResearchState:
             current_context_time,
         )
 
-        raw = await invoke_messages(messages)
+        raw = await invoke_messages(messages, temperature=0)
         parsed = _parse_judge_response(raw, state)
 
         coverage = max(0, min(30, int(parsed.get("coverage_score", 0))))
@@ -144,6 +142,19 @@ async def judge(state: ResearchState) -> ResearchState:
 
         needs_research = bool(parsed.get("needs_research", False))
         state.missing_topics = [str(t) for t in parsed.get("missing_topics", [])]
+
+        # --- Hard guard rails: deterministic post-parse score caps ---
+        sources_count = len(state.final_report.sources) if state.final_report else 0
+        total_facts = sum(len(sr.evidence) for sr in state.search_results)
+
+        if total_facts < 10:
+            state.judge_score = min(state.judge_score, 70)
+            state.missing_topics.append("[SYSTEM] Insufficient evidence: fewer than 10 facts retrieved")
+            logger.info("Guard rail: score capped at 70 (total_evidence_items=%s < 10)", total_facts)
+        elif sources_count < 5:
+            state.judge_score = min(state.judge_score, 75)
+            state.missing_topics.append("[SYSTEM] Insufficient sources: fewer than 5 unique sources")
+            logger.info("Guard rail: score capped at 75 (sources=%s < 5)", sources_count)
         state.strengths = [str(s) for s in parsed.get("strengths", [])]
         state.weaknesses = [str(w) for w in parsed.get("weaknesses", [])]
         state.reasoning = str(parsed.get("reasoning", ""))

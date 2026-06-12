@@ -20,10 +20,23 @@ logger = logging.getLogger(__name__)
 
 async def search(state: ResearchState) -> ResearchState:
     """Execute search query via orchestrator fallback chain and guarantee evidence extraction."""
-    # FIX: Instead of getting stuck on missing_topics[0], take top-3 topics slice
+    # Take up to 5 missing topics (was hardcoded to 3)
+    # Filter out [SYSTEM] operational flags — these are not real search topics
     topics_to_research = []
     if state.missing_topics:
-        topics_to_research = state.missing_topics[:3]
+        topics_to_research = [
+            t for t in state.missing_topics[:5]
+            if not str(t).startswith("[SYSTEM]")
+        ]
+        # Fallback: if all topics were [SYSTEM] flags, fall back to research_questions
+        if not topics_to_research:
+            logger.info(
+                "All missing_topics are [SYSTEM] operational flags — falling back to research_questions"
+            )
+            if state.plan and state.plan.research_questions:
+                topics_to_research = state.plan.research_questions[:1]
+            else:
+                topics_to_research = [state.query]
     elif state.plan and state.plan.research_questions:
         topics_to_research = state.plan.research_questions[:1]
     else:
@@ -42,8 +55,9 @@ async def search(state: ResearchState) -> ResearchState:
             current_question[:40],
         )
 
-        # Expand sample to 7 results to catch deep docs/blogs
-        raw_hits, meta = await orchestrator.search(query=search_query, max_results=7)
+        # Adaptive max_results: iteration 0 gets 12-15 (broad research), iteration >= 1 gets 7 (targeted)
+        max_results = 12 if state.iteration == 0 else 7
+        raw_hits, meta = await orchestrator.search(query=search_query, max_results=max_results)
         logger.info(
             "Orchestrator fetched %s items for query: %s", len(raw_hits), search_query
         )
@@ -56,28 +70,34 @@ async def search(state: ResearchState) -> ResearchState:
                 for hit in raw_hits
             ]
 
-            messages = [
-                SystemMessage(content=render_prompt("searcher_format_system.jinja")),
-                HumanMessage(
-                    content=f"Question: {current_question}\nRaw Results:\n"
-                    + "\n\n".join(raw_txt_entries)
-                ),
-            ]
+            # Batch format: process in groups of 10-15 to avoid token blow-up
+            evidence_list = []
+            batch_size = 12
+            for batch_start in range(0, len(raw_txt_entries), batch_size):
+                batch = raw_txt_entries[batch_start:batch_start + batch_size]
 
-            try:
-                raw_response = await invoke_messages(messages)
-                parsed = safe_json(raw_response)
+                messages = [
+                    SystemMessage(content=render_prompt("searcher_format_system.jinja")),
+                    HumanMessage(
+                        content=f"Question: {current_question}\nRaw Results:\n"
+                        + "\n\n".join(batch)
+                    ),
+                ]
 
-                raw_evidence = (
-                    parsed.get("evidence", []) if isinstance(parsed, dict) else []
-                )
-                for item in raw_evidence:
-                    if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        evidence_list.append(f"{item[0]} ({item[1]})")
-                    elif isinstance(item, str):
-                        evidence_list.append(item)
-            except Exception as exc:
-                logger.warning("LLM formatting failed: %s. Using raw fallback.", exc)
+                try:
+                    raw_response = await invoke_messages(messages)
+                    parsed = safe_json(raw_response)
+
+                    raw_evidence = (
+                        parsed.get("evidence", []) if isinstance(parsed, dict) else []
+                    )
+                    for item in raw_evidence:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            evidence_list.append(f"{item[0]} ({item[1]})")
+                        elif isinstance(item, str):
+                            evidence_list.append(item)
+                except Exception as exc:
+                    logger.warning("LLM formatting failed for batch %s: %s. Using raw fallback.", batch_start, exc)
 
         # Critical fallback
         if not evidence_list and raw_hits:

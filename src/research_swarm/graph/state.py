@@ -70,3 +70,5 @@ class ResearchState(BaseModel):
     evidence_quality: list[dict] = []
     # Search mode: "full" (iteration 0) or "targeted" (subsequent)
     search_mode: str = "full"
+    # Previous report for incremental rewrite loop
+    previous_report: ResearchReport | None = None

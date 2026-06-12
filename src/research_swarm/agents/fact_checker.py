@@ -48,9 +48,14 @@ async def fact_check(state: ResearchState) -> ResearchState:
         # Initialize our Qdrant singleton
         memory = get_memory_bank()
 
-        # FIX: Dynamic similarity threshold. The further the iteration, the more delicate the filtering.
-        # This allows close but semantically different hardcore facts to enter the report.
-        current_threshold = 0.92 if state.iteration < 2 else 0.86
+        # Dynamic similarity threshold with gradual decay:
+        # iter 0 → 0.94 (strict), iter 1 → 0.90 (moderate), iter 2+ → 0.82 (relaxed)
+        if state.iteration == 0:
+            current_threshold = 0.94
+        elif state.iteration == 1:
+            current_threshold = 0.90
+        else:
+            current_threshold = 0.82
         logger.info(
             "Fact checking | iteration=%s, dynamic_threshold=%s",
             state.iteration,
@@ -100,7 +105,10 @@ async def fact_check(state: ResearchState) -> ResearchState:
         # Layer 3: Final commit of clean facts to Qdrant
         current_task = latest_search.question_id
         new_stored_count = await memory.upsert_facts(
-            facts=validated_list, iteration=state.iteration, task=current_task
+            facts=validated_list,
+            iteration=state.iteration,
+            task=current_task,
+            threshold=current_threshold,
         )
 
         # Save step to LangGraph history
