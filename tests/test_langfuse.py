@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from research_swarm.observability.langfuse import (
+from observability.langfuse import (
     _LangfuseTracer,
     _NoopTracer,
     _configure_langfuse,
@@ -64,7 +64,7 @@ class TestConfigureLangfuse:
 
     def test_no_credentials_does_not_create_client(self) -> None:
         """When keys are missing, no client should be created."""
-        with patch("research_swarm.observability.langfuse.get_settings") as mock_settings:
+        with patch("observability.langfuse.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
                 langfuse_public_key=None,
                 langfuse_secret_key=None,
@@ -85,7 +85,7 @@ class TestConfigureLangfuse:
         mock_langfuse_module.Langfuse = MagicMock(return_value=mock_client)
 
         with (
-            patch("research_swarm.observability.langfuse.get_settings") as mock_settings,
+            patch("observability.langfuse.get_settings") as mock_settings,
             patch.dict("sys.modules", {"langfuse": mock_langfuse_module}),
         ):
             mock_settings.return_value = MagicMock(
@@ -112,7 +112,7 @@ class TestConfigureLangfuse:
         mock_langfuse_module.Langfuse = MagicMock(side_effect=Exception("Connection refused"))
 
         with (
-            patch("research_swarm.observability.langfuse.get_settings") as mock_settings,
+            patch("observability.langfuse.get_settings") as mock_settings,
             patch.dict("sys.modules", {"langfuse": mock_langfuse_module}),
         ):
             mock_settings.return_value = MagicMock(
@@ -149,7 +149,7 @@ class TestTraceAgent:
             if hasattr(_configure_langfuse, "_client"):
                 _configure_langfuse._client = old_client  # type: ignore[attr-defined]
 
-    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    @patch("observability.langfuse._configure_langfuse")
     def test_returns_langfuse_tracer_when_available(self, mock_configure: MagicMock) -> None:
         """When client is available, should yield a _LangfuseTracer."""
         mock_client = MagicMock()
@@ -165,7 +165,7 @@ class TestTraceAgent:
             assert isinstance(tracer, _LangfuseTracer)
             assert tracer._span is mock_span
 
-    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    @patch("observability.langfuse._configure_langfuse")
     def test_passes_agent_name_to_observation(self, mock_configure: MagicMock) -> None:
         """Should create observation with correct agent name and metadata."""
         mock_client = MagicMock()
@@ -187,7 +187,7 @@ class TestTraceAgent:
             metadata={"agent_name": "planner"},
         )
 
-    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    @patch("observability.langfuse._configure_langfuse")
     def test_handles_observation_start_failure(self, mock_configure: MagicMock) -> None:
         """If start_as_current_observation raises, should fall back to noop."""
         mock_client = MagicMock()
@@ -204,19 +204,19 @@ class TestTraceRoutingDecision:
 
     def test_returns_noop_when_no_client(self) -> None:
         """When no Langfuse client, should yield a _NoopTracer."""
-        from research_swarm.graph.state import ResearchState
+        from graph.state import ResearchState
 
         state = ResearchState(query="test", judge_score=70, iteration=1)
         with patch.object(_configure_langfuse, "_client", None, create=True):
             with trace_routing_decision("routing", state) as tracer:
                 assert isinstance(tracer, _NoopTracer)
 
-    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    @patch("observability.langfuse._configure_langfuse")
     def test_returns_langfuse_tracer_when_available(
         self, mock_configure: MagicMock
     ) -> None:
         """When client is available, should yield a _LangfuseTracer."""
-        from research_swarm.graph.state import ResearchState
+        from graph.state import ResearchState
 
         mock_client = MagicMock()
         mock_span = MagicMock()
@@ -232,12 +232,12 @@ class TestTraceRoutingDecision:
             assert isinstance(tracer, _LangfuseTracer)
             assert tracer._span is mock_span
 
-    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    @patch("observability.langfuse._configure_langfuse")
     def test_passes_routing_metadata_to_observation(
         self, mock_configure: MagicMock
     ) -> None:
         """Should create observation with routing-specific metadata."""
-        from research_swarm.graph.state import ResearchState
+        from graph.state import ResearchState
 
         mock_client = MagicMock()
         mock_span = MagicMock()
@@ -274,12 +274,12 @@ class TestTraceRoutingDecision:
             metadata={"routing_name": "routing_decision"},
         )
 
-    @patch("research_swarm.observability.langfuse._configure_langfuse")
+    @patch("observability.langfuse._configure_langfuse")
     def test_handles_observation_start_failure(
         self, mock_configure: MagicMock
     ) -> None:
         """If start_as_current_observation raises, should fall back to noop."""
-        from research_swarm.graph.state import ResearchState
+        from graph.state import ResearchState
 
         mock_client = MagicMock()
         mock_client.start_as_current_observation.side_effect = Exception("Langfuse error")

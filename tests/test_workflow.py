@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from research_swarm.graph.state import ResearchPlan, ResearchState
+from graph.state import ResearchPlan, ResearchState
 
 
 def test_research_state_creation() -> None:

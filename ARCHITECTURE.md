@@ -15,7 +15,7 @@ ollama:     image: ollama/ollama:latest      # port 11434
 ollama-provisioner:                          # auto-downloads nomic-embed-text
 ```
 
-### SwarmMemoryBank (`src/research_swarm/memory/vector_storage.py`)
+### SwarmMemoryBank (`src/memory/vector_storage.py`)
 
 | Method | Purpose |
 |--------|---------|
@@ -94,7 +94,7 @@ This would be acceptable **if** there were a fallback. But there wasn't.
 ### New Architecture: Provider + Orchestrator + Health + Diagnostics
 
 ```
-src/research_swarm/search/
+src/search/
 ├── __init__.py              # Public API: SearchOrchestrator, get_orchestrator(), etc.
 ├── base.py                  # BaseSearchProvider (ABC), SearchResultItem, SearchResponse
 ├── orchestrator.py          # Priority fallback chain
@@ -273,7 +273,7 @@ The old code conflated these into a single `no_new_evidence` condition, causing 
 - ✅ **Evidence quality tracking** — structured metadata with timestamps
 - ✅ **Vector memory** — Qdrant + Ollama semantic dedup, cross-iteration memory, smart retrieval
 - ✅ **Token efficiency** — semantic pre-filter skips duplicate evidence before LLM validation
-- ✅ **Comprehensive test suite** — 242 tests, 0 failures
+- ✅ **Comprehensive test suite** — 245 tests, 0 failures
 - ✅ **Async-first, fully typed, no TODOs or placeholders**
 - ✅ **Graceful degradation** — providers without API keys are silently skipped
 - ✅ **Infrastructure as code** — `docker-compose.yml` for one-command local setup
@@ -362,7 +362,7 @@ All six items from the TODO.md quality plan targeting 80+ judge scores.
   - Yellow WARN, Red ERROR, Red-bg CRITICAL
   - Cyan logger names, grey timestamps
 - `separator()` helper for styled section dividers
-- Logger name auto-truncation (e.g., `research_swarm.agents.searcher` → `r.agents.searcher`)
+- Logger name auto-truncation (e.g., `agents.searcher` → `a.searcher`)
 
 ---
 

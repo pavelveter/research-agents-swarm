@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from research_swarm.search.base import SearchResultItem
-from research_swarm.search.health import SearchHealthMonitor
+from search.base import SearchResultItem
+from search.health import SearchHealthMonitor
 
 
 class TestSearchOrchestrator:
@@ -23,8 +23,8 @@ class TestSearchOrchestrator:
     @pytest.mark.asyncio
     async def test_primary_succeeds_stops_fallback(self) -> None:
         """When primary provider returns results, no fallback is tried."""
-        from research_swarm.search.orchestrator import SearchOrchestrator
-        from research_swarm.search.base import BaseSearchProvider, SearchResponse
+        from search.orchestrator import SearchOrchestrator
+        from search.base import BaseSearchProvider, SearchResponse
 
         class MockPrimary(BaseSearchProvider):
             @property
@@ -80,8 +80,8 @@ class TestSearchOrchestrator:
     @pytest.mark.asyncio
     async def test_primary_fails_fallback_succeeds(self) -> None:
         """Scenario A: DDG fails, Tavily succeeds — workflow continues."""
-        from research_swarm.search.orchestrator import SearchOrchestrator
-        from research_swarm.search.base import BaseSearchProvider, SearchResponse
+        from search.orchestrator import SearchOrchestrator
+        from search.base import BaseSearchProvider, SearchResponse
 
         class MockFailingPrimary(BaseSearchProvider):
             @property
@@ -129,8 +129,8 @@ class TestSearchOrchestrator:
     @pytest.mark.asyncio
     async def test_brave_fallback_after_tavily_fails(self) -> None:
         """Scenario B: Tavily fails, Brave succeeds — workflow continues."""
-        from research_swarm.search.orchestrator import SearchOrchestrator
-        from research_swarm.search.base import BaseSearchProvider, SearchResponse
+        from search.orchestrator import SearchOrchestrator
+        from search.base import BaseSearchProvider, SearchResponse
 
         class MockFailingTavily(BaseSearchProvider):
             @property
@@ -178,8 +178,8 @@ class TestSearchOrchestrator:
     @pytest.mark.asyncio
     async def test_all_providers_fail(self) -> None:
         """Scenario C: All providers fail — all_failed=True."""
-        from research_swarm.search.orchestrator import SearchOrchestrator
-        from research_swarm.search.base import BaseSearchProvider, SearchResponse
+        from search.orchestrator import SearchOrchestrator
+        from search.base import BaseSearchProvider, SearchResponse
 
         class MockFailing(BaseSearchProvider):
             def __init__(self, slug: str) -> None:
@@ -209,8 +209,8 @@ class TestSearchOrchestrator:
     @pytest.mark.asyncio
     async def test_unavailable_providers_are_skipped(self) -> None:
         """Providers with is_available=False are silently skipped."""
-        from research_swarm.search.orchestrator import SearchOrchestrator
-        from research_swarm.search.base import BaseSearchProvider, SearchResponse
+        from search.orchestrator import SearchOrchestrator
+        from search.base import BaseSearchProvider, SearchResponse
 
         class MockUnavailable(BaseSearchProvider):
             @property
@@ -258,8 +258,8 @@ class TestSearchOrchestrator:
     @pytest.mark.asyncio
     async def test_provider_exception_is_caught(self) -> None:
         """When a provider raises an exception, fallback continues."""
-        from research_swarm.search.orchestrator import SearchOrchestrator
-        from research_swarm.search.base import BaseSearchProvider, SearchResponse
+        from search.orchestrator import SearchOrchestrator
+        from search.base import BaseSearchProvider, SearchResponse
 
         class MockCrashing(BaseSearchProvider):
             @property

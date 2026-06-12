@@ -4,15 +4,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from research_swarm.graph.state import (
+from graph.state import (
+    EvidenceItem,
     ResearchPlan,
     ResearchReport,
     ResearchState,
     SearchResult,
     ValidatedResult,
 )
-from research_swarm.graph.workflow import build_workflow
-from research_swarm.main import _merge_state
+from graph.workflow import build_workflow
+from utils import merge_state
 
 
 class TestBuildWorkflow:
@@ -72,7 +73,7 @@ class TestMergeState:
         updated = ResearchState(query="test", judge_score=85)
 
         event = {"judge": updated}
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.judge_score == 85
         assert result.query == "test"
@@ -82,7 +83,7 @@ class TestMergeState:
         current = ResearchState(query="test")
         event = {"planner": {"plan": ResearchPlan(goal="AI", research_questions=["Q1"])}}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.plan is not None
         assert result.plan.goal == "AI"
@@ -93,7 +94,7 @@ class TestMergeState:
         plan = ResearchPlan(goal="AI", research_questions=["Q1"])
         event = {"planner": {"plan": plan}, "judge": {"judge_score": 90}}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.plan is not None
         assert result.plan.goal == "AI"
@@ -104,11 +105,11 @@ class TestMergeState:
         current = ResearchState(
             query="test",
             judge_score=50,
-            search_results=[SearchResult(question_id="q1", evidence=["e1"])],
+            search_results=[SearchResult(question_id="q1", evidence=[EvidenceItem(fact="e1")])],
         )
         event = {"planner": {"plan": ResearchPlan(goal="AI", research_questions=["Q1"])}}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.judge_score == 50
         assert len(result.search_results) == 1
@@ -118,7 +119,7 @@ class TestMergeState:
         current = ResearchState(query="test", judge_score=50)
         event = {"judge": {"judge_score": 75}}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.judge_score == 75
 
@@ -133,7 +134,7 @@ class TestMergeState:
         )
         event = {"summarizer": updated_state}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.judge_score == 95
         assert result.final_report is not None
@@ -144,7 +145,7 @@ class TestMergeState:
         current = ResearchState(query="test")
         event = {"judge": {"iteration": 2, "missing_topics": ["security"], "judge_score": 70}}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.iteration == 2
         assert result.missing_topics == ["security"]
@@ -155,7 +156,7 @@ class TestMergeState:
         current = ResearchState(query="test", judge_score=50)
         event: dict = {}
 
-        result = _merge_state(current, event)
+        result = merge_state(current, event)
 
         assert result.query == "test"
         assert result.judge_score == 50

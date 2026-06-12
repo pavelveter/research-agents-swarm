@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from research_swarm.graph.state import (
+from graph.state import (
     JudgeResult,
     ResearchPlan,
     ResearchReport,
 )
-from research_swarm.graph.state import AgentIO
+from graph.state import AgentIO
 
 
 class TestSchemataModels:

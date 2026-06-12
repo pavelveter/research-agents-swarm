@@ -8,8 +8,8 @@ Includes an **agentic news sender** that runs research on a theme and delivers r
 
 ```
                           ┌─────────────────────────────────┐
-                          │  Qdrant + Ollama Vector Memory   │
-                          │  (semantic dedup & retrieval)    │
+                          │  Qdrant + Ollama Vector Memory  │
+                          │  (semantic dedup & retrieval)   │
                           └──────────┬──────────────────────┘
                                      │
   User Query -> Planner -> Searcher -> Fact Checker -> Summarizer -> Judge
@@ -176,7 +176,7 @@ See `.env.example` for the full list.
 Run the research workflow:
 
 ```bash
-uv run python -m research_swarm.main
+uv run research-swarm
 ```
 
 Run the news sender:

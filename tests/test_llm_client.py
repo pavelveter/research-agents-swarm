@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from research_swarm.llm.client import ainvoke, get_llm, invoke_messages
+from llm.client import ainvoke, get_llm, invoke_messages
 
 
 class TestGetLLM:
     """Tests for the get_llm factory function."""
 
-    @patch("research_swarm.llm.client.ChatOpenAI")
+    @patch("llm.client.ChatOpenAI")
     def test_uses_settings_model(self, mock_chat_openai: MagicMock) -> None:
         """Should create ChatOpenAI with model from settings."""
         mock_instance = MagicMock()
@@ -24,7 +24,7 @@ class TestGetLLM:
         assert "model" in call_kwargs
         assert "api_key" in call_kwargs
 
-    @patch("research_swarm.llm.client.ChatOpenAI")
+    @patch("llm.client.ChatOpenAI")
     def test_accepts_overrides(self, mock_chat_openai: MagicMock) -> None:
         """Should pass override parameters to ChatOpenAI."""
         mock_instance = MagicMock()
@@ -36,7 +36,7 @@ class TestGetLLM:
         assert call_kwargs.get("model") == "gpt-4o-mini"
         assert call_kwargs.get("temperature") == 0.5
 
-    @patch("research_swarm.llm.client.ChatOpenAI")
+    @patch("llm.client.ChatOpenAI")
     def test_returns_chat_openai_instance(self, mock_chat_openai: MagicMock) -> None:
         mock_instance = MagicMock()
         mock_chat_openai.return_value = mock_instance
@@ -49,7 +49,7 @@ class TestInvokeMessages:
     """Tests for the invoke_messages async function."""
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.get_llm")
+    @patch("llm.client.get_llm")
     async def test_returns_content_string(self, mock_get_llm: MagicMock) -> None:
         """Should return the content as a string."""
         mock_llm = MagicMock()
@@ -64,7 +64,7 @@ class TestInvokeMessages:
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.get_llm")
+    @patch("llm.client.get_llm")
     async def test_handles_empty_content(self, mock_get_llm: MagicMock) -> None:
         """Should handle empty string content from the LLM."""
         mock_llm = MagicMock()
@@ -78,7 +78,7 @@ class TestInvokeMessages:
         assert result == ""
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.get_llm")
+    @patch("llm.client.get_llm")
     async def test_passes_overrides_to_get_llm(self, mock_get_llm: MagicMock) -> None:
         """Should forward override kwargs to get_llm."""
         mock_llm = MagicMock()
@@ -92,7 +92,7 @@ class TestInvokeMessages:
         mock_get_llm.assert_called_once_with(temperature=0.3)
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.get_llm")
+    @patch("llm.client.get_llm")
     async def test_ainvoke_called_with_messages(self, mock_get_llm: MagicMock) -> None:
         """Should call ainvoke with the provided messages."""
         mock_llm = MagicMock()
@@ -108,7 +108,7 @@ class TestInvokeMessages:
         assert call_args[0] == messages
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.get_llm")
+    @patch("llm.client.get_llm")
     async def test_logs_request_and_response(self, mock_get_llm: MagicMock) -> None:
         """Should log info about the request and response (no exception)."""
         mock_llm = MagicMock()
@@ -127,7 +127,7 @@ class TestAinvoke:
     """Tests for the ainvoke alias function."""
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.invoke_messages")
+    @patch("llm.client.invoke_messages")
     async def test_calls_invoke_messages(self, mock_invoke: AsyncMock) -> None:
         """ainvoke should delegate to invoke_messages."""
         mock_invoke.return_value = "test response"
@@ -139,7 +139,7 @@ class TestAinvoke:
         mock_invoke.assert_called_once_with(messages, temperature=0.7)
 
     @pytest.mark.asyncio
-    @patch("research_swarm.llm.client.invoke_messages")
+    @patch("llm.client.invoke_messages")
     async def test_ainvoke_without_overrides(self, mock_invoke: AsyncMock) -> None:
         """ainvoke should work without override kwargs."""
         mock_invoke.return_value = "ok"

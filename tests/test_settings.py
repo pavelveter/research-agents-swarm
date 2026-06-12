@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from research_swarm.config.settings import Settings, get_settings
+from config.settings import Settings, get_settings
 
 
 class TestSettings:

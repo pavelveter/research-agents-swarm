@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from research_swarm.logging_config import preview, setup_terminal_logging
+from logging_config import preview, setup_terminal_logging
 
 
 class TestSetupTerminalLogging:

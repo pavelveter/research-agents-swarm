@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from research_swarm.graph.state import (
+from graph.state import (
     AgentIO,
+    EvidenceItem,
     JudgeResult,
     ResearchPlan,
     ResearchReport,
@@ -40,32 +41,33 @@ class TestSearchResult:
     def test_creation_with_evidence(self) -> None:
         sr = SearchResult(
             question_id="q1",
-            evidence=["fact 1 (source A)", "fact 2 (source B)"],
+            evidence=[EvidenceItem(fact="fact 1", source="source A"), EvidenceItem(fact="fact 2", source="source B")],
         )
         assert sr.question_id == "q1"
         assert len(sr.evidence) == 2
-        assert sr.evidence[0] == "fact 1 (source A)"
+        assert sr.evidence[0].fact == "fact 1"
+        assert sr.evidence[0].source == "source A"
 
     def test_requires_question_id(self) -> None:
         with pytest.raises(ValidationError):
             SearchResult(evidence=[])  # type: ignore[arg-type]
 
-    def test_evidence_field_is_required(self) -> None:
-        """evidence field has no default — must be provided."""
-        with pytest.raises(ValidationError):
-            SearchResult(question_id="q1")  # type: ignore[arg-type]
+    def test_evidence_field_defaults_to_empty(self) -> None:
+        """evidence field defaults to empty list when not provided."""
+        sr = SearchResult(question_id="q1")
+        assert sr.evidence == []
 
     def test_serialization_roundtrip(self) -> None:
-        sr = SearchResult(question_id="q1", evidence=["fact (src)"])
+        sr = SearchResult(question_id="q1", evidence=[EvidenceItem(fact="fact", source="src")])
         data = sr.model_dump()
         restored = SearchResult(**data)
         assert restored == sr
 
     def test_json_serialization(self) -> None:
-        sr = SearchResult(question_id="q1", evidence=["fact (src)"])
+        sr = SearchResult(question_id="q1", evidence=[EvidenceItem(fact="fact", source="src")])
         json_str = sr.model_dump_json()
         assert "q1" in json_str
-        assert "fact (src)" in json_str
+        assert "fact" in json_str
 
     def test_question_id_is_string(self) -> None:
         sr = SearchResult(question_id="42", evidence=[])
@@ -244,7 +246,7 @@ class TestResearchState:
         assert state.final_report is None
         assert state.judge_score == 0
         assert state.iteration == 0
-        assert state.max_iterations == 3
+        assert state.max_iterations == 5
         assert state.previous_score is None
         assert state.score_delta is None
         assert state.missing_topics == []
@@ -264,7 +266,7 @@ class TestResearchState:
 
     def test_full_creation(self) -> None:
         plan = ResearchPlan(goal="AI", research_questions=["Q1"])
-        sr = SearchResult(question_id="Q1", evidence=["fact (src)"])
+        sr = SearchResult(question_id="Q1", evidence=[EvidenceItem(fact="fact", source="src")])
         vr = ValidatedResult(validated_facts=["fact"], rejected_facts=[])
         report = ResearchReport(summary="AI is great.", sources=["src"])
         state = ResearchState(
@@ -347,7 +349,7 @@ class TestResearchState:
         assert data["final_report"] is None
         assert data["judge_score"] == 0
         assert data["iteration"] == 0
-        assert data["max_iterations"] == 3
+        assert data["max_iterations"] == 5
         assert data["previous_score"] is None
         assert data["score_delta"] is None
         assert data["missing_topics"] == []
@@ -373,8 +375,8 @@ class TestResearchState:
         assert data["judge_score"] == 70
 
     def test_multiple_search_results(self) -> None:
-        sr1 = SearchResult(question_id="q1", evidence=["e1"])
-        sr2 = SearchResult(question_id="q2", evidence=["e2"])
+        sr1 = SearchResult(question_id="q1", evidence=[EvidenceItem(fact="e1")])
+        sr2 = SearchResult(question_id="q2", evidence=[EvidenceItem(fact="e2")])
         state = ResearchState(query="test", search_results=[sr1, sr2])
         assert len(state.search_results) == 2
         assert state.search_results[0].question_id == "q1"
