@@ -8,6 +8,8 @@ from typing import Any
 
 from jinja2 import Template
 
+from research_swarm.graph.state import ResearchState
+
 
 def render_prompt(template_name: str, **kwargs) -> str:
     """Load and render a prompt from the promts directory."""
@@ -47,3 +49,18 @@ def safe_json(text: str) -> dict[str, Any]:
             raise
         parsed = json.loads(cleaned[start : end + 1])
     return parsed
+
+
+def merge_state(current: ResearchState, event: dict) -> ResearchState:
+    """Merge a LangGraph event update into the current ResearchState.
+
+    Used by both ``main.py`` and ``news_sender.py`` to accumulate state across
+    streaming workflow iterations.
+    """
+    merged = current.model_dump()
+    for update in event.values():
+        if isinstance(update, ResearchState):
+            merged.update(update.model_dump())
+        elif isinstance(update, dict):
+            merged.update(update)
+    return ResearchState(**merged)

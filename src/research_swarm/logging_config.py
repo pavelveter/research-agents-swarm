@@ -99,7 +99,11 @@ class _ColoredFormatter(logging.Formatter):
 
 
 def setup_terminal_logging(level: int = logging.INFO) -> None:
-    """Configure colorful, human-readable logs for the CLI."""
+    """Configure colorful, human-readable logs for the CLI.
+
+    If ``NEWS_LOG_FILE`` is set in the environment, a plain-text FileHandler is
+    also added alongside the colored stderr handler.
+    """
     root = logging.getLogger()
     if root.handlers:
         root.setLevel(level)
@@ -109,6 +113,27 @@ def setup_terminal_logging(level: int = logging.INFO) -> None:
     handler.setFormatter(_ColoredFormatter())
     root.addHandler(handler)
     root.setLevel(level)
+
+    # Optional plain-text file output (no ANSI codes)
+    try:
+        from research_swarm.config.settings import get_settings  # noqa: F811
+    except ImportError:
+        pass  # settings not available during early import; skip file handler
+    else:
+        log_path = get_settings().news_log_file.strip()
+        if log_path:
+            from pathlib import Path
+
+            out = Path(log_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            fh = logging.FileHandler(str(out), encoding="utf-8")
+            fh.setFormatter(
+                logging.Formatter(
+                    fmt="%(asctime)s %(levelname)-5s %(name)-28s %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
+            )
+            root.addHandler(fh)
 
     for name in _QUIET_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)

@@ -12,7 +12,7 @@ from research_swarm.graph.workflow import build_workflow
 from research_swarm.llm.client import shutdown_llm_client
 from research_swarm.logging_config import setup_terminal_logging
 from research_swarm.observability.langfuse import shutdown_observability
-from research_swarm.search.health import SearchHealthMonitor
+from research_swarm.utils import merge_state
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ async def main() -> None:
         async for event in workflow.astream(state, stream_mode="updates"):
             for node, _update in event.items():
                 logger.info("Finished node: %s", node)
-            result = _merge_state(result, event)
+            result = merge_state(result, event)
 
         _log_final_result(result)
         _print_result(result)
@@ -53,15 +53,6 @@ async def main() -> None:
         await shutdown_llm_client()
         shutdown_observability()
 
-
-def _merge_state(current: ResearchState, event: dict) -> ResearchState:
-    merged = current.model_dump()
-    for update in event.values():
-        if isinstance(update, ResearchState):
-            merged.update(update.model_dump())
-        elif isinstance(update, dict):
-            merged.update(update)
-    return ResearchState(**merged)
 
 
 def _log_final_result(state: ResearchState) -> None:

@@ -49,7 +49,7 @@ When the Fact Checker reports `new_evidence_found = False` (meaning Qdrant found
 
 ### Summarizer Integration
 
-The Summarizer no longer reads raw `state.validated_results` or `state.search_results`. Instead, it calls `memory.retrieve_context(query=state.query, limit=25)` to pull the top-25 semantically relevant facts from Qdrant. This means reports are built from:
+The Summarizer no longer reads raw `state.validated_results` or `state.search_results`. Instead, it calls `memory.retrieve_context(query=state.query, limit=50)` to pull the top-50 semantically relevant facts from Qdrant. This means reports are built from:
 - De-duplicated context (no repeated claims)
 - Cross-iteration knowledge (facts from ALL iterations, not just the latest)
 - Quality-filtered content (only facts that passed the 3-layer pipeline)
@@ -312,3 +312,113 @@ The old code conflated these into a single `no_new_evidence` condition, causing 
 | `memory/vector_storage.py` | **NEW** — `SwarmMemoryBank` with Qdrant + Ollama for semantic dedup & retrieval |
 | `docker-compose.yml` | **NEW** — Qdrant, Ollama, ollama-provisioner service definitions |
 | `tests/test_search.py` | **NEW** — 10 integration tests for orchestrator, fallback, health monitor |
+
+---
+
+## 8. Quality Improvement Overhaul (experiment-80)
+
+All six items from the TODO.md quality plan targeting 80+ judge scores.
+
+### 8a. Judge — Deterministic Scoring
+
+- **temperature=0** for zero-variance scores
+- **Concrete scoring rubric** with per-category examples (e.g., coverage 25-30 means all research questions answered with specific data)
+- **Bias fix**: `missing_topics` based strictly on `research_questions` from the plan, not hardcoded "frontier AI" framing
+- **Hard guard rails** (post-parse, deterministic):
+  - Fewer than 10 total evidence items → score capped at 70
+  - Fewer than 5 unique sources → score capped at 75
+  - Guard rail messages prefixed with `[SYSTEM]` and filtered by Searcher
+
+### 8b. Searcher — Adaptive Fan-Out
+
+- **Adaptive `max_results`**: 12-15 on iteration 0 (broad research), 7 on iterations ≥1 (targeted)
+- **Topic slice** `[:3]` → `[:5]` for broader missing-topic coverage
+- **Batch formatting**: raw search entries sent to LLM formatter in groups of 12 to avoid token blow-up
+- **`[SYSTEM]` filtering**: operational guard-rail messages excluded from search topics
+
+### 8c. Fact Checker — Gradual Threshold Decay
+
+- Iteration 0 → threshold **0.94** (strict)
+- Iteration 1 → threshold **0.90** (moderate)
+- Iteration 2+ → threshold **0.82** (relaxed)
+- Dynamic threshold passed through `memory.upsert_facts(..., threshold=...)`
+
+### 8d. Summarizer — Larger Context + Citations
+
+- Qdrant retrieval limit **25 → 50** facts
+- **Structured citations** required in LLM output (`citations` array with fact-to-source mappings)
+- **Fallback merge**: if parsed JSON is empty, secondary LLM call merges previous report with new facts at low temperature
+
+### 8e. Incremental Rewrite Loop
+
+- `ResearchState.previous_report` field preserves the last report before each Summarizer run
+- Rewrite prompt: "Preserve strong sections from previous report. Address weaknesses and missing_topics using new facts. Do NOT restart from scratch."
+- `merge_state()` extracted to `utils.py` and shared between `main.py` and `news_sender.py`
+
+### 8f. Colored Logging
+
+- ANSI-colored `_ColoredFormatter` in `logging_config.py`:
+  - Green INFO with `key=value` highlighting
+  - Yellow WARN, Red ERROR, Red-bg CRITICAL
+  - Cyan logger names, grey timestamps
+- `separator()` helper for styled section dividers
+- Logger name auto-truncation (e.g., `research_swarm.agents.searcher` → `r.agents.searcher`)
+
+---
+
+## 9. News Sender — Multi-Channel Report Delivery
+
+### Architecture
+
+```
+theme-of-the-news.txt  →  research-swarm workflow  →  NewsChannel ABC
+                                                          ├── EmailChannel (Resend API)
+                                                          ├── TelegramChannel (Bot API)
+                                                          └── DiscordChannel (Webhook)
+```
+
+### Channel Abstraction
+
+```python
+class NewsChannel(ABC):
+    @property
+    def name(self) -> str: ...
+    async def send(self, subject: str, report: str) -> bool: ...
+```
+
+Each channel is independently gated by a `NEWS_SEND_*` env var. All three can be enabled simultaneously.
+
+### Email via Resend
+
+- REST API: `POST https://api.resend.com/emails`
+- Auth: `Bearer re_...`
+- Env vars: `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_TO`, `NEWS_SEND_EMAIL`
+
+### Telegram
+
+- Bot API: `POST https://api.telegram.org/bot{token}/sendMessage`
+- Plain text mode (no parse_mode to avoid markdown rendering issues)
+- Auto-truncates messages exceeding 4000 chars
+- Env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `NEWS_SEND_TELEGRAM`
+
+### Discord
+
+- Webhook: `POST {webhook_url}` with embed object
+- Embed title = subject, description = report, color = blue
+- Auto-truncates descriptions exceeding 4000 chars
+- Env vars: `DISCORD_WEBHOOK_URL`, `NEWS_SEND_DISCORD`
+
+### CLI
+
+```bash
+news-sender                          # uses theme-of-the-news.txt
+news-sender path/to/custom-theme.txt # custom theme file
+```
+
+### Configuration vars
+
+| File | Purpose |
+|------|---------|
+| `.env.example` | All 24 env vars documented across 7 categories |
+| `pyproject.toml` | `news-sender` and `research-swarm` CLI entry points |
+| `theme-of-the-news.txt` | Default news theme (edit this to change topic) |

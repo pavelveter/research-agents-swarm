@@ -21,6 +21,10 @@ dependencies = [
     "jinja2>=3.1.6",
 ]
 
+[project.scripts]
+research-swarm = "research_swarm.main:main"
+news-sender = "research_swarm.news_sender:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

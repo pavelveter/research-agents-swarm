@@ -47,6 +47,24 @@ class Settings(BaseSettings):
     serpapi_api_key: str = Field(default="", alias="SERPAPI_API_KEY")
     searxng_base_url: str = Field(default="", alias="SEARXNG_BASE_URL")
 
+    # ── News sender channel configuration ──
+    # Email (Resend)
+    resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
+    resend_from: str = Field(default="", alias="RESEND_FROM")
+    resend_to: str = Field(default="", alias="RESEND_TO")
+    news_send_email: bool = Field(default=False, alias="NEWS_SEND_EMAIL")
+    # Telegram
+    telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    news_send_telegram: bool = Field(default=False, alias="NEWS_SEND_TELEGRAM")
+    # Discord
+    discord_webhook_url: str = Field(default="", alias="DISCORD_WEBHOOK_URL")
+    news_send_discord: bool = Field(default=False, alias="NEWS_SEND_DISCORD")
+    # File output
+    news_output_file: str = Field(default="", alias="NEWS_OUTPUT_FILE")
+    # Log file output (plain text, no ANSI codes)
+    news_log_file: str = Field(default="", alias="NEWS_LOG_FILE")
+
     @property
     def llm_api_key(self) -> str:
         if not self.openai_api_key:
