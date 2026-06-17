@@ -1,0 +1,60 @@
+[project]
+name = "research-swarm"
+version = "0.1.0"
+description = "Multi-agent research system using LangGraph, MCP, Langfuse and OpenAI-compatible LLM APIs"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langfuse>=2.0",
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+    "openai>=1.0",
+    "beautifulsoup4>=4.12",
+    "qdrant-client>=1.18.0",
+    "jinja2>=3.1.6",
+]
+
+[project.scripts]
+research-swarm = "main:main"
+news-sender = "news_sender:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/agents",
+    "src/config",
+    "src/graph",
+    "src/llm",
+    "src/memory",
+    "src/observability",
+    "src/search",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/main.py" = "main.py"
+"src/news_sender.py" = "news_sender.py"
+"src/logging_config.py" = "logging_config.py"
+"src/mcp_client.py" = "mcp_client.py"
+"src/utils.py" = "utils.py"
+"src/prompts" = "prompts"
+
+[tool.pyright]
+extraPaths = ["src"]
+pythonVersion = "3.12"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]
