@@ -1,0 +1,93 @@
+version: "3.8"
+
+networks:
+  research-network:
+    name: research_swarm_network
+    driver: bridge
+
+volumes:
+  qdrant_storage:
+    name: qdrant_storage_data
+  ollama_storage:
+    name: ollama_storage_data
+
+services:
+  # --- Vector Database Engine ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: research_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__LOG_LEVEL=INFO
+      - QDRANT__SERVICE__ENABLE_CORS=true
+    networks:
+      - research-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # --- Local Inference Engine ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: research_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    networks:
+      - research-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  # --- Automation: Pull required LLM & Embedding models on startup ---
+  ollama-provisioner:
+    image: ollama/ollama:latest
+    container_name: research_ollama_provisioner
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_storage:/root/.ollama
+    networks:
+      - research-network
+    # Скачиваем эмбеддер nomic-embed-text, который зашит у тебя в vector_storage.py
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      echo 'Downloading nomic-embed-text...';
+      ollama pull nomic-embed-text --host http://ollama:11434;
+      echo 'Models initialization complete.';
+      "
+
+  # --- Research Swarm Application Container (Optional execution layer) ---
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research_swarm_app
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      # Внутри контейнерной сети обращаемся по именам сервисов
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434/api/embeddings
+    networks:
+      - research-network
+    profiles:
+      - manual # Запустится только по явному вызову `docker compose run app`
