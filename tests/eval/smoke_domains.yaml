@@ -1,0 +1,43 @@
+# Smoke test suite — multi-domain regression checks
+# All domains must pass score >= 70 within max_iterations (default 5).
+
+smoke_tests:
+  - domain: ai
+    query: "Latest trends in AI coding assistants"
+    expected:
+      score_min: 70
+      max_iterations: 5
+      no_hallucination: true
+    description: "Control — AI domain should score highest, no regression from baseline"
+
+  - domain: policy
+    query: "European Union AI Act implementation status"
+    expected:
+      score_min: 70
+      max_iterations: 5
+      no_hallucination: true
+    description: "Policy domain — judge should not mention frontier models or SWE-bench"
+
+  - domain: biotech
+    query: "COVID-19 vaccine efficacy 2024"
+    expected:
+      score_min: 70
+      max_iterations: 5
+      no_hallucination: true
+    description: "Biotech domain — fact checker should reject non-clinical sources"
+
+  - domain: finance
+    query: "US fed rate impact on tech stocks 2025"
+    expected:
+      score_min: 70
+      max_iterations: 5
+      no_hallucination: true
+    description: "Finance domain — should use financial evidence types from DomainConfig"
+
+  - domain: general
+    query: "Obscure 14th-century poem XYZ"
+    expected:
+      score_min: 50
+      max_iterations: 5
+      no_hallucination: true
+    description: "Edge case — graceful degradation, no hallucination when no info exists"
