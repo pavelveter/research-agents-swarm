@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import json
-import os
+from pathlib import Path
 from typing import Any
 
 from jinja2 import Template
 
 from graph.state import ResearchState
 
+_PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+
 
 def render_prompt(template_name: str, **kwargs) -> str:
     """Load and render a prompt from the prompts directory."""
-    path = os.path.join(os.getcwd(), "src", "prompts", template_name)
+    path = _PROMPTS_DIR / template_name
     with open(path, "r", encoding="utf-8") as f:
         template = Template(f.read())
     return template.render(**kwargs)
