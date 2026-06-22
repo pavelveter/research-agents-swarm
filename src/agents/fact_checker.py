@@ -8,10 +8,11 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from config.settings import get_settings
 from graph.state import EvidenceItem, ResearchState, ValidatedResult
 from llm.client import invoke_messages
 from memory.vector_storage import get_memory_bank
-from observability.langfuse import trace_agent
+from observability.langfuse import _hash_query, trace_agent
 from utils import render_prompt
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,13 @@ logger = logging.getLogger(__name__)
 
 async def fact_check(state: ResearchState) -> ResearchState:
     """Validate ONLY the newest batch of gathered evidence against vector long-term storage."""
+    settings = get_settings()
     with trace_agent(
-        "fact_checker", input_data={"evidence_count": len(state.search_results)}
+        "fact_checker",
+        input_data={"evidence_count": len(state.search_results)},
+        session_id=state.session_id,
+        query_hash=_hash_query(state.query),
+        model=settings.openai_model,
     ) as tracer:
 
         if not state.search_results:
@@ -118,8 +124,15 @@ async def fact_check(state: ResearchState) -> ResearchState:
             ),
         ]
 
-        raw = await invoke_messages(messages)
-        parsed = _safe_json(raw)
+        response = await invoke_messages(messages)
+        tracer.record_llm_response(
+            response,
+            prompt_version="fact_checker_factcheck_system",
+            extra={"incoming_batch_size": len(raw_evidence)},
+        )
+        # Token usage metrics are pushed to Langfuse via ``record_llm_response``
+        # above; fall through with parsed payload for downstream consumption.
+        parsed = _safe_json(response.content)
 
         # Synchronize parsing with the state.py format (array of strings)
         validated_list = [str(x) for x in parsed.get("validated_facts", [])]

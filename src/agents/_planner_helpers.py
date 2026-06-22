@@ -93,8 +93,8 @@ async def _adversarial_challenge(
     ]
 
     try:
-        raw = await invoke_messages(messages, max_tokens=300, temperature=0.4)
-        result = safe_json(raw)
+        response = await invoke_messages(messages, max_tokens=300, temperature=0.4)
+        result = safe_json(response.content)
         passed = bool(result.get("passed", True))
         challenges = [str(c) for c in result.get("challenges", [])]
         risk_flags = [str(r) for r in result.get("risk_flags", [])]

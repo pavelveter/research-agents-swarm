@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config.settings import get_settings
-from graph.state import ResearchState
-from graph.workflow import build_workflow
 from http_client import get_http_client, shutdown_http_client
 from llm.client import shutdown_llm_client
 from logging_config import separator, setup_terminal_logging
@@ -25,7 +23,7 @@ from observability.langfuse import (
     session_context,
     shutdown_observability,
 )
-from utils import merge_state
+from utils import run_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -276,16 +274,10 @@ async def run_news_sender(theme_path: Path | None = None) -> dict[str, bool]:
         # 3. Run research-swarm — generate a fresh session id so all
         # agent traces in this run fall under a single Langfuse session.
         session_id = generate_session_id(prefix="news-sender")
-        state = ResearchState(query=theme, session_id=session_id)
         logger.info("Langfuse session_id=%s", session_id)
 
         with session_context(session_id):
-            workflow = build_workflow()
-            result = state
-            async for event in workflow.astream(state, stream_mode="updates"):
-                for node, _update in event.items():
-                    logger.info("Finished node: %s", node)
-                result = merge_state(result, event)
+            result, _meta = await run_workflow(theme, session_id)
 
         # 4. Build report
         report_body = (

@@ -5,7 +5,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from llm.client import LLMResponse
 from utils import safe_json
+
+
+def _lr(text: str, *, model: str = "gpt-4o") -> LLMResponse:
+    """Wrap a raw LLM response string in an LLMResponse — used by mocks.
+
+    Centralising the wrapper keeps the agent tests focused on behaviour
+    rather than on the new ``LLMResponse`` return shape.
+    """
+    return LLMResponse(
+        content=text,
+        model=model,
+        ttft_s=0.05,
+        duration_s=0.5,
+        token_usage={"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
+        cost_usd=0.0001,
+    )
 
 
 class TestSafeJson:
@@ -30,15 +47,30 @@ class TestSafeJson:
             safe_json("not json")
 
 
-def _sync_invoke_side_effect(target_planner: AsyncMock, target_helper: AsyncMock, items: list) -> None:
+def _sync_invoke_side_effect(
+    target_planner: AsyncMock,
+    target_helper: AsyncMock,
+    items: list,
+) -> None:
     """Sync ``side_effect`` on BOTH mock targets (planner + _planner_helpers).
 
     Each adapter uses ``from llm.client import invoke_messages`` — different
     module bindings — so unit tests after the planner refactor must patch
     both paths and feed the same side-effect list to each.
+
+    Items are now LLMResponse objects (the new return type), not raw strings.
+    Pass either LLMResponse instances or call ``_lr(text)`` to wrap strings.
     """
     target_planner.side_effect = items
     target_helper.side_effect = items
+
+
+def _make_tracer_mock() -> MagicMock:
+    """Build a MagicMock that mimics the Langfuse tracer interface used by agents."""
+    tracer = MagicMock()
+    tracer.update_observation = MagicMock()
+    tracer.record_llm_response = MagicMock()
+    return tracer
 
 
 class TestPlannerAgent:
@@ -59,13 +91,12 @@ class TestPlannerAgent:
         from agents.planner import plan
         from graph.state import ResearchState
 
-        _sync_invoke_side_effect(mock_invoke, mock_helper_invoke, [json.dumps({
+        _sync_invoke_side_effect(mock_invoke, mock_helper_invoke, [_lr(json.dumps({
             "goal": "Analyze AI coding assistants",
             "research_questions": ["Q1", "Q2", "Q3"],
-        })])
+        }))])
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -86,10 +117,12 @@ class TestPlannerAgent:
         from agents.planner import plan
         from graph.state import ResearchState
 
-        _sync_invoke_side_effect(mock_invoke, mock_helper_invoke, [json.dumps({"research_questions": ["Q1"]})])
+        _sync_invoke_side_effect(
+            mock_invoke, mock_helper_invoke,
+            [_lr(json.dumps({"research_questions": ["Q1"]}))],
+        )
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -109,11 +142,10 @@ class TestPlannerAgent:
         from graph.state import ResearchState
 
         _sync_invoke_side_effect(mock_invoke, mock_helper_invoke, [
-            '```json\n{"goal": "Test", "research_questions": ["Q"]}\n```',
+            _lr('```json\n{"goal": "Test", "research_questions": ["Q"]}\n```'),
         ])
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -134,19 +166,18 @@ class TestPlannerAgent:
         from graph.state import ResearchState
 
         _sync_invoke_side_effect(mock_invoke, mock_helper_invoke, [
-            json.dumps({
+            _lr(json.dumps({
                 "goal": "Research AI",
                 "research_questions": ["Q1", "Q2", "Q3"],
-            }),
-            json.dumps({
+            })),
+            _lr(json.dumps({
                 "passed": True,
                 "challenges": ["challenge 1", "challenge 2", "challenge 3"],
                 "risk_flags": [],
-            }),
+            })),
         ])
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -170,26 +201,25 @@ class TestPlannerAgent:
         # Planner flow: call 1 = initial plan; call 3 = refinement (only if
         # challenge returns passed=False).
         mock_invoke.side_effect = [
-            json.dumps({
+            _lr(json.dumps({
                 "goal": "Research AI",
                 "research_questions": ["Q1", "Q2"],
-            }),
-            json.dumps({
+            })),
+            _lr(json.dumps({
                 "goal": "Research AI (refined)",
                 "research_questions": ["Q1 refined", "Q2 refined", "Q3 new"],
-            }),
+            })),
         ]
         # Helper flow: single adversarial call between initial plan and refine.
         mock_helper_invoke.side_effect = [
-            json.dumps({
+            _lr(json.dumps({
                 "passed": False,
                 "challenges": ["bias risk", "alternative view", "untested assumption"],
                 "risk_flags": ["recency bias in source selection", "missing contrarian view"],
-            }),
+            })),
         ]
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -234,7 +264,7 @@ class TestSearcherAgent:
                       "all_failed": False, "attempts": []},
         )
         evidence_json = json.dumps({"evidence": [["AI is growing", "nature.com"]]})
-        mock_invoke.side_effect = ["ai research 2025", evidence_json]
+        mock_invoke.side_effect = [_lr("ai research 2025"), _lr(evidence_json)]
 
         state = ResearchState(query="AI", iteration=0, search_mode="full",
                               plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
@@ -263,7 +293,11 @@ class TestSearcherAgent:
                       "all_failed": False, "attempts": []},
         )
         evidence_json = json.dumps({"evidence": [["Risk found", "sec-db.com"]]})
-        mock_invoke.side_effect = ["security risks 2025", evidence_json, evidence_json]
+        mock_invoke.side_effect = [
+            _lr("security risks 2025"),
+            _lr(evidence_json),
+            _lr(evidence_json),
+        ]
 
         state = ResearchState(query="AI", iteration=1, search_mode="targeted",
                               missing_topics=["security risks", "cost analysis"])
@@ -294,7 +328,7 @@ class TestSearcherAgent:
                 ],
             },
         )
-        mock_invoke.return_value = "ai research 2025"  # query optimizer fallback
+        mock_invoke.return_value = _lr("ai research 2025")  # query optimizer
 
         state = ResearchState(query="AI", iteration=0, search_mode="full",
                               plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
@@ -325,7 +359,7 @@ class TestSearcherAgent:
         evidence_json = json.dumps({
             "evidence": [["AI is growing", "nature.com"], ["OLD FACT", "arxiv.org"]],
         })
-        mock_invoke.side_effect = ["ai research 2025", evidence_json]
+        mock_invoke.side_effect = [_lr("ai research 2025"), _lr(evidence_json)]
 
         old_hash = hashlib.sha256("old fact".lower().encode()).hexdigest()[:16]
         state = ResearchState(query="AI", iteration=0, search_mode="full",
@@ -354,7 +388,7 @@ class TestSearcherAgent:
                       "all_failed": False, "attempts": []},
         )
         evidence_json = json.dumps({"evidence": [["AI is important", "example.com"]]})
-        mock_invoke.side_effect = ["ai research 2025", evidence_json]
+        mock_invoke.side_effect = [_lr("ai research 2025"), _lr(evidence_json)]
 
         state = ResearchState(query="AI", iteration=0, search_mode="full",
                               plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
@@ -391,7 +425,7 @@ class TestSearcherAgent:
             },
         )
         evidence_json = json.dumps({"evidence": [["Fallback result", "ddg.com"]]})
-        mock_invoke.side_effect = ["fallback research 2025", evidence_json]
+        mock_invoke.side_effect = [_lr("fallback research 2025"), _lr(evidence_json)]
         state = ResearchState(query="AI", iteration=0, search_mode="full",
                               plan=ResearchPlan(goal="AI", research_questions=["Q1"]))
         result = await search(state)
@@ -413,13 +447,12 @@ class TestFactCheckerAgent:
         from agents.fact_checker import fact_check
         from graph.state import EvidenceItem, ResearchState, SearchResult
 
-        mock_invoke.return_value = json.dumps({
+        mock_invoke.return_value = _lr(json.dumps({
             "validated_facts": ["fact 1 confirmed", "fact 2 confirmed"],
             "rejected_facts": ["bad fact"],
-        })
+        }))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -441,8 +474,7 @@ class TestFactCheckerAgent:
         from agents.fact_checker import fact_check
         from graph.state import ResearchState
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -461,10 +493,9 @@ class TestFactCheckerAgent:
         from agents.fact_checker import fact_check
         from graph.state import EvidenceItem, ResearchState, SearchResult
 
-        mock_invoke.return_value = json.dumps({"validated_facts": ["fact 1"]})
+        mock_invoke.return_value = _lr(json.dumps({"validated_facts": ["fact 1"]}))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -485,16 +516,15 @@ class TestFactCheckerAgent:
         from agents.fact_checker import fact_check
         from graph.state import EvidenceItem, ResearchState, SearchResult
 
-        mock_invoke.return_value = json.dumps({
+        mock_invoke.return_value = _lr(json.dumps({
             "validated_facts": [
                 "FDA regulation requires compliance",
                 "general observation about trends",
             ],
             "rejected_facts": [],
-        })
+        }))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -509,7 +539,7 @@ class TestFactCheckerAgent:
                 EvidenceItem(fact="general observation about trends"),
             ]),
         ])
-        result = await fact_check(state)
+        await fact_check(state)
         assert mock_mem.upsert_facts.call_count >= 1
         layer_calls = [
             kw.get("layer") for _, kw in mock_mem.upsert_facts.call_args_list
@@ -532,13 +562,12 @@ class TestSummarizerAgent:
         from agents.summarizer import summarize
         from graph.state import EvidenceItem, ResearchState, SearchResult, ValidatedResult
 
-        mock_invoke.return_value = json.dumps({
+        mock_invoke.return_value = _lr(json.dumps({
             "summary": "AI is an important field of study.",
             "sources": ["nature.com", "arxiv.org"],
-        })
+        }))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -569,10 +598,9 @@ class TestSummarizerAgent:
         from agents.summarizer import summarize
         from graph.state import EvidenceItem, ResearchState, SearchResult
 
-        mock_invoke.return_value = json.dumps({"summary": "No information available.", "sources": []})
+        mock_invoke.return_value = _lr(json.dumps({"summary": "No information available.", "sources": []}))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -600,10 +628,9 @@ class TestSummarizerAgent:
         from agents.summarizer import summarize
         from graph.state import EvidenceItem, ResearchState, SearchResult, ValidatedResult
 
-        mock_invoke.return_value = json.dumps({"summary": "A summary."})
+        mock_invoke.return_value = _lr(json.dumps({"summary": "A summary."}))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -636,21 +663,20 @@ class TestSummarizerAgent:
 
         # First call = CoT reasoning, second call = main report (with citations to pass validation)
         mock_invoke.side_effect = [
-            json.dumps({
+            _lr(json.dumps({
                 "agreements": ["facts align on X"],
                 "conflicts": ["conflicting Y data"],
                 "evidence_strength": "moderate from 2 sources",
                 "synthesis_direction": "Report should highlight consensus on X.",
-            }),
-            json.dumps({
+            })),
+            _lr(json.dumps({
                 "summary": "AI adoption analysis [1] shows accelerating trends across industries.",
                 "sources": ["nature.com", "science.org"],
                 "citations": [{"id": 1, "source_index": 0, "fact": "AI adoption"}],
-            }),
+            })),
         ]
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -688,15 +714,14 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import EvidenceItem, ResearchPlan, ResearchReport, ResearchState, SearchResult
 
-        mock_invoke.return_value = json.dumps({
+        mock_invoke.return_value = _lr(json.dumps({
             "score": 85, "needs_research": False, "missing_topics": [],
             "strengths": ["thorough"], "weaknesses": [], "reasoning": "Complete.",
             "coverage_score": 28, "evidence_score": 18, "source_score": 17,
             "depth_score": 12, "completeness_score": 10,
-        })
+        }))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -718,13 +743,12 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({
+        mock_invoke.return_value = _lr(json.dumps({
             "score": 60, "needs_research": True, "missing_topics": ["security", "cost analysis"],
             "strengths": [], "weaknesses": ["missing cost data"], "reasoning": "Needs more data.",
-        })
+        }))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -742,10 +766,9 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import EvidenceItem, ResearchReport, ResearchState, SearchResult
 
-        mock_invoke.return_value = json.dumps({"score": 150, "needs_research": False, "missing_topics": []})
+        mock_invoke.return_value = _lr(json.dumps({"score": 150, "needs_research": False, "missing_topics": []}))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -766,10 +789,9 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({"score": 30, "needs_research": True, "missing_topics": ["topic A"]})
+        mock_invoke.return_value = _lr(json.dumps({"score": 30, "needs_research": True, "missing_topics": ["topic A"]}))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -786,10 +808,9 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({})
+        mock_invoke.return_value = _lr(json.dumps({}))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -806,14 +827,13 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import ResearchState
 
-        mock_invoke.return_value = json.dumps({
+        mock_invoke.return_value = _lr(json.dumps({
             "score": 0, "needs_research": False, "missing_topics": [],
             "strengths": [], "weaknesses": ["No evidence available"],
             "reasoning": "All search providers failed.", "retrieval_failed": True,
-        })
+        }))
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -831,13 +851,12 @@ class TestJudgeAgent:
         from agents.judge import judge
         from graph.state import ResearchPlan, ResearchReport, ResearchState
 
-        mock_invoke.return_value = (
+        mock_invoke.return_value = _lr(
             "## Judge's Evaluation **Score: 12/100** "
             "Report is too thin for production review."
         )
 
-        mock_tracer = MagicMock()
-        mock_tracer.update_observation = MagicMock()
+        mock_tracer = _make_tracer_mock()
         mock_trace.return_value.__enter__ = MagicMock(return_value=mock_tracer)
         mock_trace.return_value.__exit__ = MagicMock(return_value=False)
 

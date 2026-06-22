@@ -84,3 +84,6 @@ class ResearchState(BaseModel):
     retrieval_quality_low: bool = False
     # Source diversity flag — set by summarizer when sources collapse to single domain
     source_diversity_low: bool = False
+    # Langfuse session_id — generated per workflow run in main.py/news_sender.py
+    # and propagated to all agent observations so they share one session.
+    session_id: str | None = None

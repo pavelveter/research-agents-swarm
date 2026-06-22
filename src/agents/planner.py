@@ -13,10 +13,11 @@ from agents._planner_helpers import (
     _enforce_traceability,
 )
 from config.domain import get_domain
+from config.settings import get_settings
 from graph.state import ResearchPlan, ResearchState
 from llm.client import invoke_messages
 from logging_config import preview
-from observability.langfuse import trace_agent
+from observability.langfuse import _hash_query, trace_agent
 from utils import safe_json, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -26,12 +27,16 @@ logger = logging.getLogger(__name__)
 
 async def plan(state: ResearchState) -> ResearchState:
     """Analyze the user query and produce or extend a research plan without data loss."""
+    settings = get_settings()
     with trace_agent(
         "planner",
         input_data={"query": state.query, "iteration": state.iteration},
+        session_id=state.session_id,
+        query_hash=_hash_query(state.query),
+        model=settings.openai_model,
     ) as tracer:
         if state.iteration == 0:
-            plan_data = await _initial_plan(state)
+            plan_data = await _initial_plan(state, tracer)
 
             # T15: Adversarial challenge — review draft plan for blind spots
             if isinstance(plan_data, dict) and "research_questions" in plan_data:
@@ -59,10 +64,16 @@ async def plan(state: ResearchState) -> ResearchState:
                     try:
                         domain = get_domain(state.query)
                         temperature = max(0.0, 1.0 - domain.strictness)
-                        refined_raw = await invoke_messages(refine_messages, temperature=temperature)
-                        refined = safe_json(refined_raw)
-                        if refined and "research_questions" in refined:
-                            plan_data = refined
+                        refined = await invoke_messages(refine_messages, temperature=temperature)
+                        tracer.record_llm_response(
+                            refined,
+                            temperature=temperature,
+                            agent_name="planner_refine",
+                            extra={"phase": "adversarial_refinement"},
+                        )
+                        refined_data = safe_json(refined.content)
+                        if refined_data and "research_questions" in refined_data:
+                            plan_data = refined_data
                             logger.info("Adversarial refinement produced updated plan")
                     except Exception as exc:
                         logger.warning("Adversarial refinement call failed: %s", exc)
@@ -84,7 +95,7 @@ async def plan(state: ResearchState) -> ResearchState:
                 research_questions=[str(q) for q in plan_data["research_questions"]],
             )
         else:
-            plan_data = await _refine_plan(state)
+            plan_data = await _refine_plan(state, tracer)
 
             # If refinement fails, just keep the current plan intact
             if isinstance(plan_data, dict) and "research_questions" in plan_data:
@@ -122,7 +133,7 @@ async def plan(state: ResearchState) -> ResearchState:
     return state
 
 
-async def _initial_plan(state: ResearchState) -> dict[str, Any]:
+async def _initial_plan(state: ResearchState, tracer: Any) -> dict[str, Any]:
     logger.info("Planning research | mode=initial query=%s", preview(state.query, 80))
     messages = [
         SystemMessage(content=render_prompt("planner_plan_system.jinja")),
@@ -132,14 +143,21 @@ async def _initial_plan(state: ResearchState) -> dict[str, Any]:
         domain = get_domain(state.query)
         temperature = max(0.0, 1.0 - domain.strictness)
         logger.info("Planner temperature=%.2f (domain=%s strictness=%.2f)", temperature, domain.slug, domain.strictness)
-        raw = await invoke_messages(messages, temperature=temperature)
-        return safe_json(raw)
+        response = await invoke_messages(messages, temperature=temperature)
+        tracer.record_llm_response(
+            response,
+            temperature=temperature,
+            prompt_version="planner_plan_system",
+            agent_name="planner_initial",
+            extra={"phase": "initial"},
+        )
+        return safe_json(response.content)
     except Exception as exc:
         logger.error("Initial plan LLM invocation failed: %s", exc, exc_info=True)
         return {}
 
 
-async def _refine_plan(state: ResearchState) -> dict[str, Any]:
+async def _refine_plan(state: ResearchState, tracer: Any) -> dict[str, Any]:
     # T6: deep-dive mode — build plan ONLY from missing_topics when iteration > 0
     topics = [t for t in state.missing_topics if not str(t).startswith("[SYSTEM]")]
     if not topics:
@@ -173,8 +191,15 @@ async def _refine_plan(state: ResearchState) -> dict[str, Any]:
         domain = get_domain(state.query)
         temperature = max(0.0, 1.0 - domain.strictness)
         logger.info("Re-planner temperature=%.2f (domain=%s strictness=%.2f)", temperature, domain.slug, domain.strictness)
-        raw = await invoke_messages(messages, temperature=temperature)
-        return safe_json(raw)
+        response = await invoke_messages(messages, temperature=temperature)
+        tracer.record_llm_response(
+            response,
+            temperature=temperature,
+            prompt_version="planner_replan_system",
+            agent_name="planner_refine",
+            extra={"phase": "deep_dive", "iteration": state.iteration},
+        )
+        return safe_json(response.content)
     except Exception as exc:
         logger.error("Refine plan LLM invocation failed: %s", exc, exc_info=True)
         return {}

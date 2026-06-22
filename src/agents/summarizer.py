@@ -13,7 +13,7 @@ from graph.state import ResearchReport, ResearchState
 from llm.client import invoke_messages
 from logging_config import preview
 from memory.vector_storage import get_memory_bank
-from observability.langfuse import trace_agent
+from observability.langfuse import _hash_query, trace_agent
 from utils import safe_json, render_prompt
 from agents._summarizer_helpers import (
     _check_source_diversity,
@@ -42,7 +42,14 @@ _MIN_CONTEXT_CHARS = 150  # below this, emit empty report (no evidence)
 
 async def summarize(state: ResearchState) -> ResearchState:
     """Produce final comprehensive report pulling clean context out of Qdrant memory layer."""
-    with trace_agent("summarizer", input_data={"query": state.query}) as tracer:
+    settings = get_settings()
+    with trace_agent(
+        "summarizer",
+        input_data={"query": state.query},
+        session_id=state.session_id,
+        query_hash=_hash_query(state.query),
+        model=settings.openai_model,
+    ) as tracer:
 
         # Copy previous report before overwriting (for incremental rewrite loop)
         if state.final_report is not None:
@@ -180,8 +187,16 @@ async def summarize(state: ResearchState) -> ResearchState:
                 ),
                 HumanMessage(content=f"Facts to analyze:\n{facts_block}"),
             ]
-            reasoning_raw = await invoke_messages(cot_messages, temperature=0.3, max_tokens=400)
-            cot_reasoning = safe_json(reasoning_raw)
+            reasoning_response = await invoke_messages(
+                cot_messages, temperature=0.3, max_tokens=400
+            )
+            tracer.record_llm_response(
+                reasoning_response,
+                temperature=0.3,
+                prompt_version="summarizer_cot_reasoning",
+                extra={"phase": "cot_reasoning"},
+            )
+            cot_reasoning = safe_json(reasoning_response.content)
             _debug_log("CoT reasoning produced keys=%s", list(cot_reasoning.keys()) if cot_reasoning else "(none)")
         except Exception as exc:
             logger.warning("CoT reasoning pass failed (non-fatal): %s", exc)
@@ -189,9 +204,16 @@ async def summarize(state: ResearchState) -> ResearchState:
         # ── 4. Primary LLM call ──────────────────────────────────
         temperature = max(0.0, 1.0 - domain.strictness)
         logger.info("Summarizer temperature=%.2f (domain=%s strictness=%.2f)", temperature, domain.slug, domain.strictness)
-        raw = await invoke_messages(messages, temperature=temperature)
-        _debug_log("Raw LLM output (first 500 chars): %s", raw[:500])
-        parsed = safe_json(raw)
+        response = await invoke_messages(messages, temperature=temperature)
+        tracer.record_llm_response(
+            response,
+            temperature=temperature,
+            prompt_version="summarizer_summarizer_system",
+            extra={"phase": "primary", "inference_mode": bool(inference_block)},
+        )
+        raw_preview = response.content
+        _debug_log("Raw LLM output (first 500 chars): %s", raw_preview[:500])
+        parsed = safe_json(raw_preview)
 
         # ── 5. Fallback: merge with previous report if JSON empty ─
         if not parsed or (not parsed.get("summary") and not parsed.get("sources")):
@@ -216,8 +238,14 @@ async def summarize(state: ResearchState) -> ResearchState:
                         )
                     ),
                 ]
-                raw = await invoke_messages(merge_messages, temperature=0.2)
-                parsed = safe_json(raw)
+                raw_response = await invoke_messages(merge_messages, temperature=0.2)
+                tracer.record_llm_response(
+                    raw_response,
+                    temperature=0.2,
+                    prompt_version="summarizer_merge_fallback",
+                    extra={"phase": "merge_fallback"},
+                )
+                parsed = safe_json(raw_response.content)
             else:
                 logger.warning("No previous report available for fallback merge")
                 state.final_report = _empty_report()
@@ -281,7 +309,14 @@ async def summarize(state: ResearchState) -> ResearchState:
                     )
                 ),
             ]
-            retry_raw = await invoke_messages(retry_messages, temperature=0.1)
+            retry_response = await invoke_messages(retry_messages, temperature=0.1)
+            tracer.record_llm_response(
+                retry_response,
+                temperature=0.1,
+                prompt_version="summarizer_strict_retry",
+                extra={"phase": "validation_retry"},
+            )
+            retry_raw = retry_response.content
             _debug_log("Retry raw output (first 500 chars): %s", retry_raw[:500])
             retry_parsed = safe_json(retry_raw)
 

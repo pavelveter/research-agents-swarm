@@ -3,36 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
-import httpx
 from jinja2 import Template
 
 from graph.state import ResearchState
 
+logger = logging.getLogger(__name__)
+
 _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-
-_shared_http_client: httpx.AsyncClient | None = None
-
-
-def get_shared_http_client() -> httpx.AsyncClient:
-    """Return a process-wide shared httpx.AsyncClient with tuned connection limits."""
-    global _shared_http_client
-    if _shared_http_client is None or _shared_http_client.is_closed:
-        _shared_http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0),
-            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-        )
-    return _shared_http_client
-
-
-async def close_shared_http_client() -> None:
-    """Gracefully close the shared httpx.AsyncClient."""
-    global _shared_http_client
-    if _shared_http_client is not None and not _shared_http_client.is_closed:
-        await _shared_http_client.aclose()
-        _shared_http_client = None
 
 
 def render_prompt(template_name: str, **kwargs) -> str:
@@ -88,3 +69,35 @@ def merge_state(current: ResearchState, event: dict) -> ResearchState:
         elif isinstance(update, dict):
             merged.update(update)
     return ResearchState(**merged)
+
+
+async def run_workflow(
+    query: str,
+    session_id: str,
+    *,
+    node_logger: logging.Logger | None = None,
+) -> tuple[ResearchState, dict]:
+    """Execute the research workflow and return the final state + metadata.
+
+    Extracts the duplicated streaming loop from ``main.py`` and
+    ``news_sender.py`` into a single reusable entry point.
+
+    Returns ``(final_state, metadata)`` where *metadata* contains:
+    - ``"nodes_completed"``: list of node names that finished.
+    - ``"final_state"``: the accumulated ``ResearchState``.
+    """
+    from graph.workflow import build_workflow
+
+    log = node_logger or logger
+    state = ResearchState(query=query, session_id=session_id)
+    workflow = build_workflow()
+
+    nodes_completed: list[str] = []
+    result = state
+    async for event in workflow.astream(state, stream_mode="updates"):
+        for node, _update in event.items():
+            log.info("Finished node: %s", node)
+            nodes_completed.append(node)
+        result = merge_state(result, event)
+
+    return result, {"nodes_completed": nodes_completed, "final_state": result}

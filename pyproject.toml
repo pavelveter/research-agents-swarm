@@ -44,7 +44,6 @@ packages = [
 "src/main.py" = "main.py"
 "src/news_sender.py" = "news_sender.py"
 "src/logging_config.py" = "logging_config.py"
-"src/mcp_client.py" = "mcp_client.py"
 "src/utils.py" = "utils.py"
 "src/prompts" = "prompts"
 

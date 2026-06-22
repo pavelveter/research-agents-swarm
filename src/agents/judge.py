@@ -11,9 +11,10 @@ from agents._judge_helpers import (
     _strip_tech_few_shot,
 )
 from config.domain import get_domain
+from config.settings import get_settings
 from graph.state import ResearchState
 from llm.client import invoke_messages
-from observability.langfuse import trace_agent
+from observability.langfuse import _hash_query, trace_agent
 from utils import render_prompt
 
 logger = logging.getLogger(__name__)
@@ -24,12 +25,17 @@ async def judge(state: ResearchState) -> ResearchState:
 
     Strips hardcoded model indices to maintain production validity across years.
     """
+    settings = get_settings()
     with trace_agent(
         "judge",
         input_data={
             "has_report": state.final_report is not None,
             "iteration": state.iteration,
         },
+        session_id=state.session_id,
+        query_hash=_hash_query(state.query),
+        model=settings.openai_model,
+        temperature=0,
     ) as tracer:
         # Extract precise system time to build sliding window of relevance
         now = datetime.date.today()
@@ -101,8 +107,14 @@ async def judge(state: ResearchState) -> ResearchState:
         # (ponytail: temperature is currently hardcoded to 0 below for determinism;
         #  upgrade path — pass ``judge_temp`` as the ``temperature`` arg once we
         #  want domain-specific variance in evaluation).
-        raw = await invoke_messages(messages, max_tokens=800, temperature=0)
-        parsed = _parse_judge_response(raw, state)
+        response = await invoke_messages(messages, max_tokens=800, temperature=0)
+        tracer.record_llm_response(
+            response,
+            temperature=0,
+            prompt_version="judge_judge_system_prompt",
+            extra={"iteration": state.iteration, "ai_related": _query_is_ai_related(state.query)},
+        )
+        parsed = _parse_judge_response(response.content, state)
 
         # Domain-aware component maxes from scoring_weights (each weight × 100)
         w = domain.scoring_weights

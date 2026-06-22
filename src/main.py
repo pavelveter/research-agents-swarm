@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 
 from config.settings import get_settings
 from graph.state import ResearchState
-from graph.workflow import build_workflow
 from http_client import shutdown_http_client
 from llm.client import shutdown_llm_client
 from logging_config import setup_terminal_logging
@@ -19,7 +18,7 @@ from observability.langfuse import (
     session_context,
     shutdown_observability,
 )
-from utils import merge_state
+from utils import run_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +39,10 @@ async def async_main() -> None:
             logger.info("API base: %s", settings.openai_base_url)
 
         session_id = generate_session_id()
-        state = ResearchState(query=query, session_id=session_id)
         logger.info("Langfuse session_id=%s", session_id)
 
         with session_context(session_id):
-            workflow = build_workflow()
-
-            result = state
-            async for event in workflow.astream(state, stream_mode="updates"):
-                for node, _update in event.items():
-                    logger.info("Finished node: %s", node)
-                result = merge_state(result, event)
+            result, _meta = await run_workflow(query, session_id)
 
         _log_final_result(result)
         _print_result(result)

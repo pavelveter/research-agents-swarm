@@ -156,8 +156,8 @@ async def _optimize_query_with_llm(question: str) -> str:
     ]
 
     try:
-        raw_response = await invoke_messages(messages, max_tokens=25, temperature=0.1)
-        cleaned = raw_response.strip().lower().replace('"', "").replace("'", "")
+        llm_resp = await invoke_messages(messages, max_tokens=25, temperature=0.1)
+        cleaned = llm_resp.content.strip().lower().replace('"', "").replace("'", "")
         if cleaned and len(cleaned.split()) <= 12:
             # T7: Sniper mode — append academic-source hints for analytical queries
             question_lower = question.lower()

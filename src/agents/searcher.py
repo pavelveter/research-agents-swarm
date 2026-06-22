@@ -138,8 +138,8 @@ async def search(state: ResearchState) -> ResearchState:
                 ]
 
                 try:
-                    raw_response = await invoke_messages(messages, temperature=0.1)
-                    parsed = safe_json(raw_response)
+                    response = await invoke_messages(messages, temperature=0.1)
+                    parsed = safe_json(response.content)
 
                     raw_evidence = (
                         parsed.get("evidence", []) if isinstance(parsed, dict) else []
@@ -179,8 +179,10 @@ async def search(state: ResearchState) -> ResearchState:
                                 + "\n\n".join(batch)
                             ),
                         ]
-                        retry_raw = await invoke_messages(retry_messages, max_tokens=200, temperature=0.0)
-                        retry_parsed = safe_json(retry_raw)
+                        retry_resp = await invoke_messages(
+                            retry_messages, max_tokens=200, temperature=0.0
+                        )
+                        retry_parsed = safe_json(retry_resp.content)
                         retry_evidence = (
                             retry_parsed.get("evidence", [])
                             if isinstance(retry_parsed, dict)
