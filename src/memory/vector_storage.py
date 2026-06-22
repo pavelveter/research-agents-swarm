@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
-import httpx
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
+
+from http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -48,20 +50,27 @@ class SwarmMemoryBank:
 
     async def _embed_string(self, text: str) -> list[float]:
         """Generate embedding using native Ollama API."""
-        async with httpx.AsyncClient(timeout=60.0) as http_client:
-            response = await http_client.post(
-                self.ollama_url, json={"model": self.embedding_model, "prompt": text}
-            )
-            if response.status_code != 200:
-                logger.error("Ollama embedding error: %s", response.text)
-                response.raise_for_status()
+        client = get_http_client()
+        response = await client.post(
+            self.ollama_url, json={"model": self.embedding_model, "prompt": text}
+        )
+        if response.status_code != 200:
+            logger.error("Ollama embedding error: %s", response.text)
+            response.raise_for_status()
 
-            data = response.json()
-            return list(data["embedding"])
+        data = response.json()
+        return list(data["embedding"])
+
+    _EMBED_SEMAPHORE = asyncio.Semaphore(8)
 
     async def _embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Batch embed documents via native sequential local execution."""
-        return [await self._embed_string(text) for text in texts]
+        """Batch embed documents concurrently via Ollama with bounded parallelism."""
+
+        async def _guarded_embed(text: str) -> list[float]:
+            async with self._EMBED_SEMAPHORE:
+                return await self._embed_string(text)
+
+        return list(await asyncio.gather(*[_guarded_embed(t) for t in texts]))
 
     async def upsert_facts(
         self,

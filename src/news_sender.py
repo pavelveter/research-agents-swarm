@@ -14,14 +14,17 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
-
 from config.settings import get_settings
 from graph.state import ResearchState
 from graph.workflow import build_workflow
+from http_client import get_http_client, shutdown_http_client
 from llm.client import shutdown_llm_client
 from logging_config import separator, setup_terminal_logging
-from observability.langfuse import shutdown_observability
+from observability.langfuse import (
+    generate_session_id,
+    session_context,
+    shutdown_observability,
+)
 from utils import merge_state
 
 logger = logging.getLogger(__name__)
@@ -71,24 +74,24 @@ class EmailChannel(NewsChannel):
             logger.warning("Email channel not configured — skipping")
             return False
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(
-                    RESEND_API,
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "from": self._from,
-                        "to": [self._to],
-                        "subject": subject,
-                        "html": report,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                email_id = data.get("id", "unknown")
-                logger.info("Report sent via Resend to %s (id=%s)", self._to, email_id)
+            client = get_http_client()
+            resp = await client.post(
+                RESEND_API,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": self._from,
+                    "to": [self._to],
+                    "subject": subject,
+                    "html": report,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            email_id = data.get("id", "unknown")
+            logger.info("Report sent via Resend to %s (id=%s)", self._to, email_id)
             return True
         except Exception as exc:
             logger.error("Resend send failed: %s", exc)
@@ -126,20 +129,20 @@ class TelegramChannel(NewsChannel):
                 body = body[: max_len - 30] + "\n\n…\n(report truncated)"
 
             url = f"https://api.telegram.org/bot{self._token}/sendMessage"
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(
-                    url,
-                    json={
-                        "chat_id": self._chat_id,
-                        "text": body,
-                        "disable_web_page_preview": True,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("ok"):
-                    logger.error("Telegram API error: %s", data)
-                    return False
+            client = get_http_client()
+            resp = await client.post(
+                url,
+                json={
+                    "chat_id": self._chat_id,
+                    "text": body,
+                    "disable_web_page_preview": True,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("ok"):
+                logger.error("Telegram API error: %s", data)
+                return False
             logger.info("Report sent via Telegram to chat %s", self._chat_id)
             return True
         except Exception as exc:
@@ -185,9 +188,9 @@ class DiscordChannel(NewsChannel):
                     }
                 ]
             }
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(self._webhook, json=payload)
-                resp.raise_for_status()
+            client = get_http_client()
+            resp = await client.post(self._webhook, json=payload)
+            resp.raise_for_status()
             logger.info("Report sent via Discord webhook")
             return True
         except Exception as exc:
@@ -270,14 +273,19 @@ async def run_news_sender(theme_path: Path | None = None) -> dict[str, bool]:
         logger.info("File output: %s", settings.news_output_file)
 
     try:
-        # 3. Run research-swarm
-        state = ResearchState(query=theme)
-        workflow = build_workflow()
-        result = state
-        async for event in workflow.astream(state, stream_mode="updates"):
-            for node, _update in event.items():
-                logger.info("Finished node: %s", node)
-            result = merge_state(result, event)
+        # 3. Run research-swarm — generate a fresh session id so all
+        # agent traces in this run fall under a single Langfuse session.
+        session_id = generate_session_id(prefix="news-sender")
+        state = ResearchState(query=theme, session_id=session_id)
+        logger.info("Langfuse session_id=%s", session_id)
+
+        with session_context(session_id):
+            workflow = build_workflow()
+            result = state
+            async for event in workflow.astream(state, stream_mode="updates"):
+                for node, _update in event.items():
+                    logger.info("Finished node: %s", node)
+                result = merge_state(result, event)
 
         # 4. Build report
         report_body = (
@@ -332,6 +340,7 @@ async def run_news_sender(theme_path: Path | None = None) -> dict[str, bool]:
         return results
 
     finally:
+        await shutdown_http_client()
         await shutdown_llm_client()
         shutdown_observability()
 
