@@ -35,6 +35,20 @@ class Settings(BaseSettings):
     langfuse_public_key: Optional[str] = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: Optional[str] = Field(default=None, alias="LANGFUSE_SECRET_KEY")
     langfuse_host: str = Field(default="https://cloud.langfuse.com", alias="LANGFUSE_HOST")
+    langfuse_debug: bool = Field(default=False, alias="LANGFUSE_DEBUG")
+
+    # Pricing table — drives Langfuse totalCost USD estimates (NOT invoicing).
+    # Empty value means "use the bundled default at <project_root>/data/pricing.json"
+    # which mirrors _BUILTIN_PRICING_TABLE in src/llm/client.py. Point this at
+    # an external JSON file when ops needs to override rates without a code
+    # change. Schema (flat dict, each row is [input_usd_per_1k, output_usd_per_1k]):
+    #   {"gpt-4o": [0.0025, 0.01], "_default": [0.001, 0.003], ...}
+    pricing_table_path: str = Field(default="", alias="PRICING_TABLE_PATH")
+
+    # Qdrant vector DB
+    qdrant_url: str = Field(default="http://127.0.0.1:6333", alias="QDRANT_URL")
+    # Ollama embedding endpoint
+    ollama_url: str = Field(default="http://127.0.0.1:11434/api/embeddings", alias="OLLAMA_URL")
 
     # MCP server configuration
     mcp_host: str = Field(default="127.0.0.1", alias="MCP_HOST")

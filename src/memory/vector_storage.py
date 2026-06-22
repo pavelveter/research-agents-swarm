@@ -15,13 +15,11 @@ logger = logging.getLogger(__name__)
 class SwarmMemoryBank:
     """Enterprise memory bank leveraging AsyncQdrantClient for native async/await graph execution."""
 
-    def __init__(self) -> None:
-        qdrant_url = "http://127.0.0.1:6333"
+    def __init__(self, qdrant_url: str = "http://127.0.0.1:6333", ollama_url: str = "http://127.0.0.1:11434/api/embeddings") -> None:
         self.client = AsyncQdrantClient(url=qdrant_url, api_key=None)
         self.collection_name = "swarm_validated_facts"
 
-        # Local Ollama configuration
-        self.ollama_url = "http://127.0.0.1:11434/api/embeddings"
+        self.ollama_url = ollama_url
         self.embedding_model = "nomic-embed-text"
 
         self._collection_ready = False
@@ -206,5 +204,7 @@ def get_memory_bank() -> SwarmMemoryBank:
     """Retrieve application-level global memory singleton."""
     global _memory_bank
     if _memory_bank is None:
-        _memory_bank = SwarmMemoryBank()
+        from config.settings import get_settings
+        s = get_settings()
+        _memory_bank = SwarmMemoryBank(qdrant_url=s.qdrant_url, ollama_url=s.ollama_url)
     return _memory_bank
