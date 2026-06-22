@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AgentIO(BaseModel):
@@ -17,7 +17,7 @@ class EvidenceItem(BaseModel):
 
 class SearchResult(BaseModel):
     question_id: str
-    evidence: list[EvidenceItem] = []
+    evidence: list[EvidenceItem] = Field(default_factory=list)
 
 
 class ValidatedResult(BaseModel):
@@ -39,43 +39,43 @@ class JudgeResult(AgentIO):
     score: int
     needs_research: bool
     missing_topics: list[str]
-    strengths: list[str] = []
-    weaknesses: list[str] = []
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
     reasoning: str = ""
 
 
 class ResearchState(BaseModel):
     query: str
     plan: ResearchPlan | None = None
-    search_results: list[SearchResult] = []
-    validated_results: list[ValidatedResult] = []
+    search_results: list[SearchResult] = Field(default_factory=list)
+    validated_results: list[ValidatedResult] = Field(default_factory=list)
     final_report: ResearchReport | None = None
     judge_score: int = 0
     iteration: int = 0
     max_iterations: int = 5
     previous_score: int | None = None
     score_delta: int | None = None
-    missing_topics: list[str] = []
+    missing_topics: list[str] = Field(default_factory=list)
     no_progress: bool = False
     stop_reason: str = ""
     new_evidence_found: bool = True
     new_evidence_count: int = 0
-    known_evidence_hashes: list[str] = []
+    known_evidence_hashes: list[str] = Field(default_factory=list)
     # Weighted component scores from judge
     coverage_score: int = 0
     evidence_score: int = 0
     source_score: int = 0
     depth_score: int = 0
     completeness_score: int = 0
-    strengths: list[str] = []
-    weaknesses: list[str] = []
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
     reasoning: str = ""
     # --- Retrieval architecture fields ---
     retrieval_failed: bool = False
     retrieval_failure_reason: str = ""
-    search_providers_tried: list[str] = []
+    search_providers_tried: list[str] = Field(default_factory=list)
     search_provider_used: str = ""
-    evidence_quality: list[dict] = []
+    evidence_quality: list[dict] = Field(default_factory=list)
     # Search mode: "full" (iteration 0) or "targeted" (subsequent)
     search_mode: str = "full"
     # Previous report for incremental rewrite loop
